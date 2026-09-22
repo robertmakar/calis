@@ -1,56 +1,133 @@
-# Welcome to your Expo app 👋
+# CALIS
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+CALIS is a minimalist iOS calisthenics app that turns bodyweight training into a simple, guided daily practice.
 
-## Get started
+It generates a personalized daily workout, guides you through every set and rest period, tracks your training history, and adapts progression over time.
 
-1. Install dependencies
+## Features
 
-   ```bash
-   npm install
-   ```
+- **Daily workouts** — deterministic five-exercise sessions covering push, legs, pull, glutes, and core.
+- **Personalized training** — workouts adapt to experience level, available equipment, goals, and progression preferences.
+- **Guided workout flow** — set tracking, rest timers, timed holds, haptics, and exercise animations.
+- **Progression** — increase reps or hold duration before moving to harder exercise variations.
+- **Exercise replacement** — replace an individual exercise with a related, equipment-appropriate alternative without regenerating the workout.
+- **Progress tracking** — weekly activity, streaks, recent workouts, progression insights, and next targets.
+- **Onboarding & settings** — experience, equipment, goals, appearance, app icon, progression, and Apple Health settings.
+- **Light / dark mode** — system, light, and dark appearance options with matching native app icons.
+- **Apple Health** — optionally saves completed CALIS workouts to Apple Health.
+- **Offline-first** — workout data and preferences are stored locally; there is no backend.
 
-2. Start the app
+## Tech Stack
 
-   ```bash
-   npx expo start
-   ```
+- Expo SDK 57
+- React Native 0.86
+- React 19
+- TypeScript
+- Expo Router
+- React Native SVG
+- React Native Reanimated
+- AsyncStorage
+- Swift / Expo Modules for native iOS functionality
+- HealthKit
 
-In the output, you'll find options to open the app in a
+## Architecture
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+CALIS is primarily a local iOS application with no backend.
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+src/
+├── app/          # Screens and navigation
+├── components/   # Reusable CALIS UI and exercise animations
+├── constants/    # Exercise library, workout generation, theme
+└── lib/          # Personalization, progression, history, preferences, Health
+modules/
+└── calis-native/ # Custom Swift Expo module for native iOS features
+plugins/
+└── *.js          # Expo config plugins for native iOS configuration
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+The active workout session is kept in memory while persistent data is stored locally with AsyncStorage. Native appearance state is mirrored through iOS `UserDefaults` where required.
 
-### Other setup steps
+## Development
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+Install dependencies:
 
-## Learn more
+```bash
+npm install
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+Start the Expo development server:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```bash
+npx expo start
+```
 
-## Join the community
+For native iOS development:
 
-Join our community of developers creating universal apps.
+```bash
+npx expo run:ios
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Type-check the project:
+
+```bash
+npx tsc --noEmit
+```
+
+### Native development note
+
+CALIS contains custom native iOS code, config plugins, HealthKit integration, alternate app icons, and a custom UIScene lifecycle.
+
+The `ios/` directory is generated and disposable. The source of truth for native configuration is `app.json`, the files in `plugins/`, and `modules/calis-native`.
+
+> **Do not run `npx expo prebuild --clean`** unless you understand and explicitly intend to regenerate the native project.
+
+## Project Structure
+
+### Workout system
+
+The daily workout generator creates five exercise slots. Personalization then applies the user's experience, equipment, goals, preferred variations, and progression targets.
+
+During a workout, the current session is locked in memory so replacements and progression choices do not unexpectedly regenerate the active workout.
+
+### Progression
+
+CALIS uses progression ladders for reps and timed holds. After sufficient successful sessions at a target, the app can offer the next progression step or a harder variation.
+
+### Data
+
+Workout history, preferences, progression preferences, appearance preference, app icon preference, and Apple Health de-duplication data are stored locally.
+
+### Native iOS
+
+The custom `calis-native` module currently provides:
+
+- Appearance synchronization
+- Alternate app icon switching
+- Apple Health workout writes
+
+The project also uses Expo config plugins for native iOS configuration.
+
+## Design
+
+CALIS follows a restrained editorial visual language:
+
+- Warm off-white and near-black foundations
+- Restrained burnt-orange accent
+- Large typography and generous whitespace
+- Hairline dividers
+- Minimal cards and controls
+- Procedural line-based exercise animations
+- Light and dark themes designed as a single visual system
+
+## Status
+
+CALIS is an actively developed personal iOS fitness project.
+
+The current codebase is focused on the core workout experience, progression, local history, personalization, and native iOS integration.
+
+## Author
+
+**ROBZ!**
+
+Built by Robert Makar.
