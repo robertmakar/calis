@@ -293,6 +293,16 @@ function RearFootRest() {
   );
 }
 
+function LowBench() {
+  return (
+    <>
+      <EquipLine x1={60} y1={250} x2={122} y2={250} width={3} />
+      <EquipLine x1={68} y1={250} x2={68} y2={FLOOR_Y} />
+      <EquipLine x1={114} y1={250} x2={114} y2={FLOOR_Y} />
+    </>
+  );
+}
+
 function HighBar() {
   const { figure } = useAnimationInk();
   return (
@@ -852,6 +862,36 @@ function buildSingleLegBridge(t: number): Pose {
   const ankle2 = polar(knee2, raise, LEN.shin);
   const toe2 = polar(ankle2, raise + 0.35, 16);
   return { ...pose, knee2, ankle2, toe2 };
+}
+
+function buildSingleLegHipThrust(t: number): Pose {
+  const shoulder = { x: 108, y: 244 };
+  const { ankle, toe } = foot(256);
+  const torsoAngle = lerp(0.72, 0, t);
+  const hip = {
+    x: shoulder.x + Math.cos(torsoAngle) * LEN.torso,
+    y: shoulder.y + Math.sin(torsoAngle) * LEN.torso,
+  };
+  const head = polar(shoulder, -1.3 + torsoAngle * 0.2, LEN.head);
+  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
+  const wrist = { x: 96, y: 252 };
+  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxY');
+  const lift = lerp(0.9, 0.55, t);
+  const knee2 = polar(hip, lift, LEN.thigh);
+  const ankle2 = polar(knee2, lift + 0.1, LEN.shin);
+  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe, knee2, ankle2, toe2: polar(ankle2, lift + 0.5, 14) };
+}
+
+function buildSingleLegRdl(t: number): Pose {
+  const { ankle, toe } = foot(206);
+  const knee = polar(ankle, lerp(0.03, 0.14, t), LEN.shin);
+  const hip = polar(knee, lerp(0.02, -0.08, t), LEN.thigh);
+  const { shoulder, head } = spine(hip, lerp(0.05, 1.32, t));
+  const arm = hangingArm(shoulder);
+  const back = lerp(Math.PI + 0.06, Math.PI + 1.36, t);
+  const knee2 = polar(hip, back, LEN.thigh);
+  const ankle2 = polar(knee2, back, LEN.shin);
+  return { head, shoulder, hip, knee, ankle, toe, ...arm, knee2, ankle2, toe2: polar(ankle2, back + 1.5, 14) };
 }
 
 function buildRow(t: number): Pose {
@@ -1722,6 +1762,18 @@ function GoodMorning() {
   return <Stage build={buildGoodMorning} />;
 }
 
+function SingleLegHipThrust() {
+  return (
+    <Stage build={buildSingleLegHipThrust}>
+      <LowBench />
+    </Stage>
+  );
+}
+
+function SingleLegRdl() {
+  return <Stage build={buildSingleLegRdl} />;
+}
+
 function AssistedAustralianRow() {
   return (
     <Stage build={buildAssistedRow}>
@@ -1814,6 +1866,8 @@ const ANIMATIONS: Record<string, () => JSX.Element> = {
   'single-leg glute bridges': SingleLegGluteBridge,
   'single-leg glute bridge': SingleLegGluteBridge,
   'good mornings': GoodMorning,
+  'single-leg hip thrusts': SingleLegHipThrust,
+  'single-leg rdls': SingleLegRdl,
   'good morning': GoodMorning,
   'australian rows': AustralianRow,
   'feet-elevated australian rows': FeetElevatedAustralianRow,
@@ -1882,6 +1936,8 @@ const ANIMATIONS_BY_TYPE: Record<string, () => JSX.Element> = {
   gluteBridge: GluteBridge,
   singleLegGluteBridge: SingleLegGluteBridge,
   goodMorning: GoodMorning,
+  singleLegHipThrust: SingleLegHipThrust,
+  singleLegRdl: SingleLegRdl,
   australianRow: AustralianRow,
   assistedAustralianRow: AssistedAustralianRow,
   feetElevatedAustralianRow: FeetElevatedAustralianRow,

@@ -50,6 +50,8 @@ export type AnimationType =
   | 'gluteBridge'
   | 'singleLegGluteBridge'
   | 'goodMorning'
+  | 'singleLegHipThrust'
+  | 'singleLegRdl'
   | 'australianRow'
   | 'assistedAustralianRow'
   | 'feetElevatedAustralianRow'
@@ -97,7 +99,8 @@ export type ProgressionGroup =
   | 'side-plank'
   | 'squat'
   | 'calf-raise'
-  | 'pull-up';
+  | 'pull-up'
+  | 'hinge';
 
 /**
  * Optional per-exercise ladder override. When absent, the ladder is
@@ -510,6 +513,26 @@ export const EXERCISES: Exercise[] = [
     progressionGroup: 'glute-bridge',
     progressionLevel: 2,
     easierVariationId: 'glute-bridges',
+    harderVariationId: 'single-leg-hip-thrusts',
+  },
+  {
+    id: 'single-leg-hip-thrusts',
+    name: 'Single-Leg Hip Thrusts',
+    category: 'glutes',
+    difficulty: 'advanced',
+    equipment: 'chair',
+    primaryMuscles: ['glutes', 'hamstrings'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 6,
+    animationType: 'singleLegHipThrust',
+    cue: 'Reps are per side. Upper back on the chair, one foot down — drive your hips up and squeeze.',
+    instructions: 'Reps are per side. Rest your upper back against the edge of a sturdy chair with one foot flat and the other leg raised. Drive through the planted heel to lift your hips level, pause, then lower. Finish the reps, then switch sides.',
+    progressionGroup: 'glute-bridge',
+    progressionLevel: 3,
+    easierVariationId: 'single-leg-glute-bridges',
+    progression: { ceiling: 10 },
+    progressionOnly: true,
   },
   {
     id: 'good-mornings',
@@ -524,6 +547,28 @@ export const EXERCISES: Exercise[] = [
     animationType: 'goodMorning',
     cue: 'Hinge at your hips with a flat back, then stand tall.',
     instructions: 'Softly bend your knees, push your hips back, and keep your back long. Return to standing by squeezing your glutes.',
+    progressionGroup: 'hinge',
+    progressionLevel: 1,
+    harderVariationId: 'single-leg-rdls',
+  },
+  {
+    id: 'single-leg-rdls',
+    name: 'Single-Leg RDLs',
+    category: 'glutes',
+    difficulty: 'intermediate',
+    equipment: 'none',
+    primaryMuscles: ['hamstrings', 'glutes', 'core'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 6,
+    animationType: 'singleLegRdl',
+    cue: 'Reps are per side. Stand on one leg, hinge at the hips as the other leg reaches back, then return.',
+    instructions: 'Reps are per side. Stand on one leg with a soft knee. Hinge forward at the hips while your free leg extends straight back, keeping your back long. Return to standing with control, finish the reps, then switch sides.',
+    progressionGroup: 'hinge',
+    progressionLevel: 2,
+    easierVariationId: 'good-mornings',
+    progression: { ceiling: 10 },
+    progressionOnly: true,
   },
   {
     id: 'australian-rows',
@@ -1358,6 +1403,26 @@ const EXERCISE_GUIDES: Record<string, ExerciseGuide> = {
       'Stand up by squeezing your glutes.',
     ],
     formTips: ['Hinge from the hips, not the waist.', 'Do not round your back.', 'Keep the movement slow.'],
+  },
+  'single-leg-hip-thrusts': {
+    description: 'An advanced one-leg hip thrust with your upper back on a chair, for a bigger range of motion than a floor bridge.',
+    howTo: [
+      'Rest your upper back against the edge of a sturdy chair.',
+      'Plant one foot flat and lift the other leg.',
+      'Drive through the planted heel until your hips are level.',
+      'Pause, lower with control, then switch sides.',
+    ],
+    formTips: ['Reps are per side.', 'Keep your hips level — do not twist.', 'Use a chair that will not slide.'],
+  },
+  'single-leg-rdls': {
+    description: 'A one-leg hip hinge that builds hamstring and glute strength and balance.',
+    howTo: [
+      'Stand on one leg with a soft knee.',
+      'Hinge forward at the hips.',
+      'Let your free leg extend straight back.',
+      'Return to standing with control, then switch sides.',
+    ],
+    formTips: ['Reps are per side.', 'Keep your back long.', 'Keep your hips square to the floor.'],
   },
   'australian-rows': {
     description: 'A horizontal pulling exercise using a low bar. It builds back and arm strength.',
