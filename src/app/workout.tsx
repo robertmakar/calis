@@ -163,6 +163,7 @@ function ActiveWorkout({
   const { colors } = useCalisTheme();
   const holdHandledRef = useRef(false);
   const restConsumedRef = useRef(false);
+  const restAfterLastSetRef = useRef(false);
   const busyRef = useRef(false);
   const fade = useRef(new Animated.Value(1)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
@@ -317,6 +318,7 @@ function ActiveWorkout({
       setSetIndex((value) => value + 1);
     }
     restConsumedRef.current = false;
+    restAfterLastSetRef.current = lastSet;
     setPhase('rest');
     setSecondsLeft(REST_SECONDS);
   }, [exerciseIndex, exercises, recordCompletedSet, setIndex]);
@@ -348,8 +350,7 @@ function ActiveWorkout({
         return;
       }
       restConsumedRef.current = true;
-      const current = exercises[exerciseIndex];
-      if (setIndex >= current.sets - 1) {
+      if (restAfterLastSetRef.current) {
         completeExerciseAfterRest();
         return;
       }
