@@ -1198,6 +1198,72 @@ function buildReverseCrunch(t: number): Pose {
   return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
 }
 
+function buildLyingLegRaise(t: number): Pose {
+  const shoulder = { x: 112, y: 278 };
+  const head = polar(shoulder, -1.45, LEN.head);
+  const hip = { x: 176, y: 280 };
+  const wrist = { x: 160, y: FLOOR_Y - 4 };
+  const elbow = lerpPoint(shoulder, wrist, LEN.upper / (LEN.upper + LEN.lower));
+  const legAngle = lerp(1.45, 0.12, t);
+  const knee = polar(hip, legAngle, LEN.thigh);
+  const ankle = polar(knee, legAngle, LEN.shin);
+  const toe = polar(ankle, legAngle - 1.35, 14);
+  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+}
+
+function hangingUpperBody() {
+  const wrist = { x: 200, y: HIGH_BAR_Y };
+  const shoulder = { x: 200, y: HIGH_BAR_Y + LEN.upper + LEN.lower - 1 };
+  const head = polar(shoulder, 0, LEN.head);
+  const hip = polar(shoulder, Math.PI, LEN.torso);
+  return { wrist, shoulder, head, hip, elbow: straightArm(shoulder, wrist) };
+}
+
+function buildHangingKneeRaise(t: number): Pose {
+  const upper = hangingUpperBody();
+  const thigh = lerp(Math.PI - 0.08, 1.45, t);
+  const knee = polar(upper.hip, thigh, LEN.thigh);
+  const ankle = polar(knee, lerp(Math.PI + 0.9, Math.PI - 0.15, t), LEN.shin);
+  const toe = polar(ankle, lerp(Math.PI / 2 + 0.36, 1.5, t), 14);
+  return { ...upper, knee, ankle, toe };
+}
+
+function buildHangingLegRaise(t: number): Pose {
+  const upper = hangingUpperBody();
+  const legAngle = lerp(Math.PI - 0.55, 1.5, t);
+  const knee = polar(upper.hip, legAngle, LEN.thigh);
+  const ankle = polar(knee, legAngle, LEN.shin);
+  const toe = polar(ankle, legAngle - 1.3, 14);
+  return { ...upper, knee, ankle, toe };
+}
+
+function buildTuckVUp(t: number): Pose {
+  const hip = { x: 196, y: 288 };
+  const torso = lerp(-1.2, -0.5, t);
+  const { shoulder, head } = spine(hip, torso);
+  const thigh = lerp(1.32, 0.4, t);
+  const knee = polar(hip, thigh, LEN.thigh);
+  const ankle = polar(knee, lerp(1.4, 1.85, t), LEN.shin);
+  const toe = polar(ankle, 0.9, 14);
+  const wrist = lerpPoint(extend(shoulder, knee, 70), { x: knee.x + 6, y: knee.y + 10 }, t);
+  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxY');
+  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+}
+
+function buildVUp(t: number): Pose {
+  const hip = { x: 196, y: 290 };
+  const torso = lerp(-1.5, -0.62, t);
+  const { shoulder, head } = spine(hip, torso);
+  const legAngle = lerp(1.5, 0.6, t);
+  const knee = polar(hip, legAngle, LEN.thigh);
+  const ankle = polar(knee, legAngle, LEN.shin);
+  const toe = polar(ankle, legAngle - 1.3, 14);
+  const overhead = extend(shoulder, { x: shoulder.x - 100, y: shoulder.y - 4 }, LEN.upper + LEN.lower - 4);
+  const wrist = lerpPoint(overhead, lerpPoint(knee, ankle, 0.4), t);
+  const elbow = lerpPoint(shoulder, wrist, LEN.upper / (LEN.upper + LEN.lower));
+  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+}
+
 function buildCatCow(t: number): Pose {
   const wrist = { x: 128, y: FLOOR_Y };
   const knee = { x: 232, y: FLOOR_Y };
@@ -1786,6 +1852,34 @@ function ReverseCrunch() {
   return <Stage build={buildReverseCrunch} />;
 }
 
+function LyingLegRaise() {
+  return <Stage build={buildLyingLegRaise} />;
+}
+
+function HangingKneeRaise() {
+  return (
+    <Stage build={buildHangingKneeRaise}>
+      <HighBar />
+    </Stage>
+  );
+}
+
+function HangingLegRaise() {
+  return (
+    <Stage build={buildHangingLegRaise}>
+      <HighBar />
+    </Stage>
+  );
+}
+
+function TuckVUp() {
+  return <Stage build={buildTuckVUp} />;
+}
+
+function VUp() {
+  return <Stage build={buildVUp} />;
+}
+
 function CatCow() {
   return <Stage build={buildCatCow} />;
 }
@@ -1901,6 +1995,11 @@ const ANIMATIONS: Record<string, () => JSX.Element> = {
   crunch: Crunch,
   'reverse crunches': ReverseCrunch,
   'reverse crunch': ReverseCrunch,
+  'lying leg raises': LyingLegRaise,
+  'hanging knee raises': HangingKneeRaise,
+  'hanging leg raises': HangingLegRaise,
+  'tuck v-ups': TuckVUp,
+  'v-ups': VUp,
   'cat cow': CatCow,
   "child's pose": ChildPose,
   'shoulder circles': ShoulderCircles,
@@ -1964,6 +2063,11 @@ const ANIMATIONS_BY_TYPE: Record<string, () => JSX.Element> = {
   starPlank: StarPlank,
   crunch: Crunch,
   reverseCrunch: ReverseCrunch,
+  lyingLegRaise: LyingLegRaise,
+  hangingKneeRaise: HangingKneeRaise,
+  hangingLegRaise: HangingLegRaise,
+  tuckVUp: TuckVUp,
+  vUp: VUp,
   catCow: CatCow,
   childPose: ChildPose,
   shoulderCircles: ShoulderCircles,

@@ -78,6 +78,11 @@ export type AnimationType =
   | 'starPlank'
   | 'crunch'
   | 'reverseCrunch'
+  | 'lyingLegRaise'
+  | 'hangingKneeRaise'
+  | 'hangingLegRaise'
+  | 'tuckVUp'
+  | 'vUp'
   | 'catCow'
   | 'childPose'
   | 'shoulderCircles'
@@ -100,7 +105,9 @@ export type ProgressionGroup =
   | 'squat'
   | 'calf-raise'
   | 'pull-up'
-  | 'hinge';
+  | 'hinge'
+  | 'leg-raise'
+  | 'flexion';
 
 /**
  * Optional per-exercise ladder override. When absent, the ladder is
@@ -1030,6 +1037,48 @@ export const EXERCISES: Exercise[] = [
     animationType: 'crunch',
     cue: 'Lift your shoulders slightly, then lower with control.',
     instructions: 'Lie on your back with knees bent. Curl your ribcage toward your hips, then lower slowly.',
+    progressionGroup: 'flexion',
+    progressionLevel: 1,
+    harderVariationId: 'tuck-v-ups',
+  },
+  {
+    id: 'tuck-v-ups',
+    name: 'Tuck V-ups',
+    category: 'core',
+    difficulty: 'intermediate',
+    equipment: 'none',
+    primaryMuscles: ['core', 'hip-flexors'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 8,
+    animationType: 'tuckVUp',
+    cue: 'Sit back on your hips, then pull your knees and chest together at the same time.',
+    instructions: 'Sit on the floor and lean back with your feet lifted and arms reaching forward. Draw your knees and chest toward each other, then extend back out with control.',
+    progressionGroup: 'flexion',
+    progressionLevel: 2,
+    easierVariationId: 'crunches',
+    harderVariationId: 'v-ups',
+    progression: { ceiling: 12 },
+    progressionOnly: true,
+  },
+  {
+    id: 'v-ups',
+    name: 'V-ups',
+    category: 'core',
+    difficulty: 'advanced',
+    equipment: 'none',
+    primaryMuscles: ['core', 'hip-flexors'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 6,
+    animationType: 'vUp',
+    cue: 'Lying long, lift straight legs and chest together into a V, then lower slowly.',
+    instructions: 'Lie on your back with arms overhead and legs straight. Raise your legs and upper body together, reaching your hands toward your feet to form a V, then lower with control.',
+    progressionGroup: 'flexion',
+    progressionLevel: 3,
+    easierVariationId: 'tuck-v-ups',
+    progression: { ceiling: 10 },
+    progressionOnly: true,
   },
   {
     id: 'reverse-crunches',
@@ -1044,6 +1093,68 @@ export const EXERCISES: Exercise[] = [
     animationType: 'reverseCrunch',
     cue: 'Lift your hips gently toward the ceiling, then lower.',
     instructions: 'Lie on your back with knees bent. Curl your hips off the floor, then return with control.',
+    progressionGroup: 'leg-raise',
+    progressionLevel: 1,
+    harderVariationId: 'lying-leg-raises',
+  },
+  {
+    id: 'lying-leg-raises',
+    name: 'Lying Leg Raises',
+    category: 'core',
+    difficulty: 'intermediate',
+    equipment: 'none',
+    primaryMuscles: ['core', 'hip-flexors'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 8,
+    animationType: 'lyingLegRaise',
+    cue: 'Low back pressed down. Raise straight legs together, then lower slowly without arching.',
+    instructions: 'Lie on your back with your legs straight and together and your hands by your sides. Keep your lower back pressed into the floor as you raise your legs until they point up, then lower slowly.',
+    progressionGroup: 'leg-raise',
+    progressionLevel: 2,
+    easierVariationId: 'reverse-crunches',
+    harderVariationId: 'hanging-knee-raises',
+    progression: { ceiling: 12 },
+    progressionOnly: true,
+  },
+  {
+    id: 'hanging-knee-raises',
+    name: 'Hanging Knee Raises',
+    category: 'core',
+    difficulty: 'intermediate',
+    equipment: 'pull-up-bar',
+    primaryMuscles: ['core', 'hip-flexors'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 6,
+    animationType: 'hangingKneeRaise',
+    cue: 'Hang from the bar and bring your knees up toward your chest without swinging.',
+    instructions: 'Hang from a pull-up bar with straight arms. Brace, then draw your knees up toward your chest and lower them with control. Keep your body still.',
+    progressionGroup: 'leg-raise',
+    progressionLevel: 3,
+    easierVariationId: 'lying-leg-raises',
+    harderVariationId: 'hanging-leg-raises',
+    progression: { ceiling: 10 },
+    progressionOnly: true,
+  },
+  {
+    id: 'hanging-leg-raises',
+    name: 'Hanging Leg Raises',
+    category: 'core',
+    difficulty: 'advanced',
+    equipment: 'pull-up-bar',
+    primaryMuscles: ['core', 'hip-flexors'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 4,
+    animationType: 'hangingLegRaise',
+    cue: 'Hang from the bar and raise straight legs to hip height or higher, then lower slowly.',
+    instructions: 'Hang from a pull-up bar with straight arms. Keeping your legs straight and together, raise them to at least hip height, then lower them slowly without swinging.',
+    progressionGroup: 'leg-raise',
+    progressionLevel: 4,
+    easierVariationId: 'hanging-knee-raises',
+    progression: { ceiling: 8 },
+    progressionOnly: true,
   },
   {
     id: 'cat-cow',
@@ -1683,6 +1794,56 @@ const EXERCISE_GUIDES: Record<string, ExerciseGuide> = {
       'Lower with control.',
     ],
     formTips: ['Do not swing your legs.', 'Keep the lift small.', 'Move slowly.'],
+  },
+  'lying-leg-raises': {
+    description: 'A lower-abdominal exercise that raises straight legs while your back stays flat.',
+    howTo: [
+      'Lie on your back with your legs straight and together.',
+      'Press your lower back into the floor.',
+      'Raise your legs until they point up.',
+      'Lower slowly, stopping before your back arches.',
+    ],
+    formTips: ['Keep your lower back down.', 'Keep your legs together.', 'Bend your knees slightly if your back lifts.'],
+  },
+  'hanging-knee-raises': {
+    description: 'A hanging core exercise that brings your knees toward your chest.',
+    howTo: [
+      'Hang from a pull-up bar with straight arms.',
+      'Brace your core.',
+      'Draw your knees up toward your chest.',
+      'Lower them with control.',
+    ],
+    formTips: ['Avoid swinging.', 'Move slowly.', 'Keep your shoulders active.'],
+  },
+  'hanging-leg-raises': {
+    description: 'An advanced hanging core exercise that raises straight legs.',
+    howTo: [
+      'Hang from a pull-up bar with straight arms.',
+      'Keep your legs straight and together.',
+      'Raise them to at least hip height.',
+      'Lower slowly without swinging.',
+    ],
+    formTips: ['Control the lowering.', 'Avoid kipping or swinging.', 'Return to knee raises if your legs bend.'],
+  },
+  'tuck-v-ups': {
+    description: 'A seated core exercise that draws your knees and chest together.',
+    howTo: [
+      'Sit on the floor and lean back slightly.',
+      'Lift your feet and reach your arms forward.',
+      'Pull your knees and chest together.',
+      'Extend back out with control.',
+    ],
+    formTips: ['Move both ends at once.', 'Keep your chest lifted.', 'Stay balanced on your hips.'],
+  },
+  'v-ups': {
+    description: 'An advanced core exercise that folds your straight body into a V.',
+    howTo: [
+      'Lie on your back with arms overhead and legs straight.',
+      'Raise your legs and chest together.',
+      'Reach your hands toward your feet.',
+      'Lower slowly to the start.',
+    ],
+    formTips: ['Keep your legs straight.', 'Lower with control.', 'Return to tuck V-ups if your legs bend.'],
   },
   'cat-cow': {
     description: 'A gentle spine mobility drill. Round and arch slowly to warm up your back.',
