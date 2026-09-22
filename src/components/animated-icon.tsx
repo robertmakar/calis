@@ -2,13 +2,17 @@ import { Image } from 'expo-image';
 import * as SplashScreen from 'expo-splash-screen';
 import { useState } from 'react';
 import { Dimensions, StyleSheet, View } from 'react-native';
+
+import { useCalisTheme } from '@/components/calis-theme';
 import Animated, { Easing, Keyframe } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
 const INITIAL_SCALE_FACTOR = Dimensions.get('screen').height / 90;
 const DURATION = 600;
+const SPLASH_LOGO_SIZE = 228;
 
 export function AnimatedSplashOverlay() {
+  const { colors, scheme } = useCalisTheme();
   const [animate, setAnimate] = useState(false);
   const [visible, setVisible] = useState(true);
 
@@ -33,7 +37,18 @@ export function AnimatedSplashOverlay() {
     },
   });
 
-  const image = <Image style={styles.image} source={require('@/assets/images/expo-logo.png')} />;
+  const mark = (
+    <Image
+      source={
+        scheme === 'dark'
+          ? require('@/assets/images/splash-icon-dark.png')
+          : require('@/assets/images/splash-icon.png')
+      }
+      style={styles.splashLogo}
+      contentFit="contain"
+      accessibilityLabel="CALIS"
+    />
+  );
 
   return animate ? (
     <Animated.View
@@ -43,8 +58,8 @@ export function AnimatedSplashOverlay() {
           scheduleOnRN(setVisible, false);
         }
       })}
-      style={styles.splashOverlay}>
-      {image}
+      style={[styles.splashOverlay, { backgroundColor: colors.background }]}>
+      {mark}
     </Animated.View>
   ) : (
     <View
@@ -53,8 +68,8 @@ export function AnimatedSplashOverlay() {
           setAnimate(true);
         });
       }}
-      style={styles.splashOverlay}>
-      {image}
+      style={[styles.splashOverlay, { backgroundColor: colors.background }]}>
+      {mark}
     </View>
   );
 }
@@ -140,9 +155,12 @@ const styles = StyleSheet.create({
   },
   splashOverlay: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: '#208AEF',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1000,
+  },
+  splashLogo: {
+    width: SPLASH_LOGO_SIZE,
+    height: SPLASH_LOGO_SIZE,
   },
 });
