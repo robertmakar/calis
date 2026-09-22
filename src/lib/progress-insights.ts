@@ -1,11 +1,15 @@
-import { getExerciseById, isExerciseAvailable } from '@/constants/exercises';
+import {
+  getExerciseById,
+  getPreviousAvailableVariation,
+  isExerciseAvailable,
+} from '@/constants/exercises';
 import { formatExercisePrescription, libraryExerciseToSession } from '@/lib/personalized-workout';
 import {
   collectExercisePerformances,
   evaluateExerciseProgression,
   type ExerciseProgressionResult,
 } from '@/lib/progression';
-import { type EquipmentOption } from '@/lib/user-preferences';
+import { type EquipmentOption, type ExperienceLevel } from '@/lib/user-preferences';
 import { localDateKey, type CompletedWorkout } from '@/lib/workout-history';
 
 const MAX_STRONGER = 3;
@@ -150,7 +154,8 @@ function nextFromResult(
 export function getProgressInsights(
   history: CompletedWorkout[],
   equipment: readonly EquipmentOption[] = ['none'],
-  now = new Date()
+  now = new Date(),
+  experience?: ExperienceLevel
 ): { stronger: StrengthInsight[]; nextTarget: NextTargetInsight | null } {
   const today = localDateKey(now);
   history = history.filter((workout) => workout.date <= today);
@@ -158,8 +163,10 @@ export function getProgressInsights(
   const stronger: StrengthInsight[] = [];
   const nextCandidates: { insight: NextTargetInsight; sortDate: string }[] = [];
 
+  const owned = ownedEquipment(equipment);
+
   for (const id of ids) {
-    const result = evaluateExerciseProgression(id, history, now);
+    const result = evaluateExerciseProgression(id, history, now, { equipment: owned, experience });
     const sets = latestSets(result);
     const sortDate = lastTrained(id, history);
     const next = nextFromResult(result, equipment);
@@ -207,17 +214,20 @@ export function getProgressInsights(
       continue;
     }
     const current = getExerciseById(id);
-    const easierId = current?.easierVariationId;
-    if (!current || !easierId) {
+    if (!current) {
       continue;
     }
-    const easier = getExerciseById(easierId);
-    if (!easier) {
-      continue;
-    }
-    const easierDate = lastTrained(easierId, history);
+    const direct = current.easierVariationId ? getExerciseById(current.easierVariationId) : undefined;
+    const available = getPreviousAvailableVariation(current, owned);
     const currentDate = firstTrained(id, history);
-    if (!easierDate || !currentDate || currentDate < easierDate) {
+    const easier = [direct, available].find((candidate) => {
+      if (!candidate || !currentDate) {
+        return false;
+      }
+      const easierDate = lastTrained(candidate.id, history);
+      return Boolean(easierDate) && currentDate >= easierDate;
+    });
+    if (!easier) {
       continue;
     }
     stronger.push({

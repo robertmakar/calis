@@ -72,14 +72,11 @@ export default function ProgressionPreferenceScreen() {
 
   const currentId = preferredId ?? fromId;
   const proposedId =
-    result?.status === 'ready-for-next-variation' &&
-    result.nextExerciseId &&
-    from?.harderVariationId &&
-    result.nextExerciseId === from.harderVariationId
+    result?.status === 'ready-for-next-variation' && result.nextExerciseId
       ? result.nextExerciseId
       : undefined;
   const proposed = proposedId ? getExerciseById(proposedId) : undefined;
-  const canLevelUp = Boolean(proposed && from?.harderVariationId === proposed.id);
+  const canLevelUp = Boolean(proposed);
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>

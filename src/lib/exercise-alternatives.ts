@@ -6,7 +6,11 @@ import {
   type Exercise,
   type ExerciseEquipment,
 } from '@/constants/exercises';
-import { type DailyWorkout, type SessionExercise } from '@/constants/workouts';
+import {
+  isDifficultyAllowedForExperience,
+  type DailyWorkout,
+  type SessionExercise,
+} from '@/constants/workouts';
 import {
   applyProgressionToExercise,
   libraryExerciseToSession,
@@ -45,7 +49,7 @@ function isExperienceAppropriate(
   if (experience === 'experienced') {
     return true;
   }
-  if (experience === 'beginner' && candidate.difficulty === 'intermediate') {
+  if (!isDifficultyAllowedForExperience(candidate.difficulty, experience)) {
     return false;
   }
   if (current.progressionLevel == null || candidate.progressionLevel == null) {

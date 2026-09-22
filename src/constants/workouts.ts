@@ -2,7 +2,9 @@ import {
   type AnimationType,
   type Exercise,
   type ExerciseCategory,
+  type ExerciseDifficulty,
   type ExerciseEquipment,
+  type ProgressionGroup,
   EXERCISES,
   isExerciseAvailable,
 } from '@/constants/exercises';
@@ -61,6 +63,92 @@ export function deriveWorkoutTitle(workout: {
   return PROGRAM_TITLE[DEFAULT_WORKOUT_PROGRAM];
 }
 
+const DIFFICULTY_RANK: Record<ExerciseDifficulty, number> = {
+  beginner: 0,
+  intermediate: 1,
+  advanced: 2,
+};
+
+/** Highest difficulty assigned by default (generation, replacement lists). */
+const MAX_DEFAULT_DIFFICULTY: Record<ExperienceLevel, ExerciseDifficulty> = {
+  beginner: 'beginner',
+  'some-experience': 'intermediate',
+  experienced: 'advanced',
+};
+
+/** Highest difficulty a user can ever earn through progression (level-ups). */
+const MAX_PROGRESSION_DIFFICULTY: Record<ExperienceLevel, ExerciseDifficulty> = {
+  beginner: 'intermediate',
+  'some-experience': 'intermediate',
+  experienced: 'advanced',
+};
+
+function isDifficultyWithin(difficulty: ExerciseDifficulty, max: ExerciseDifficulty): boolean {
+  return DIFFICULTY_RANK[difficulty] <= DIFFICULTY_RANK[max];
+}
+
+/**
+ * Highest progressionLevel the generator may assign by default, per chain and experience.
+ * A missing entry means no cap. Harder levels stay reachable through explicit progression
+ * (level-ups / progression preferences).
+ */
+const GENERATION_LEVEL_CAPS: Partial<
+  Record<ProgressionGroup, Partial<Record<ExperienceLevel, number>>>
+> = {
+  // Diamond / decline / archer (levels 5–7) are reached through level-ups, not assigned by default.
+  'push-up': { 'some-experience': 4, experienced: 4 },
+  // Core chains keep plank / dead bug / side plank as the default; harder steps come from level-ups.
+  plank: { 'some-experience': 2, experienced: 2 },
+  hollow: { beginner: 1, 'some-experience': 1, experienced: 1 },
+  'side-plank': { 'some-experience': 2, experienced: 2 },
+};
+
+/** Whether a difficulty may be assigned by default (generation, replacement lists) at this experience. */
+export function isDifficultyAllowedForExperience(
+  difficulty: ExerciseDifficulty,
+  experience: ExperienceLevel
+): boolean {
+  return isDifficultyWithin(difficulty, MAX_DEFAULT_DIFFICULTY[experience]);
+}
+
+/**
+ * Whether progression may move from a `from` variation into a `to` variation at this experience.
+ * Within the default tier progression is free; a user earns one tier beyond it only by stepping
+ * out of the default tier (e.g. beginner: knee push-ups → push-ups, but not push-ups → diamond);
+ * nothing above MAX_PROGRESSION_DIFFICULTY is ever reachable.
+ */
+export function isProgressionStepAllowed(
+  from: ExerciseDifficulty,
+  to: ExerciseDifficulty,
+  experience: ExperienceLevel
+): boolean {
+  if (!isDifficultyWithin(to, MAX_PROGRESSION_DIFFICULTY[experience])) {
+    return false;
+  }
+  if (isDifficultyAllowedForExperience(to, experience)) {
+    return true;
+  }
+  const defaultRank = DIFFICULTY_RANK[MAX_DEFAULT_DIFFICULTY[experience]];
+  return isDifficultyAllowedForExperience(from, experience) && DIFFICULTY_RANK[to] <= defaultRank + 1;
+}
+
+function isWithinGenerationCap(exercise: Exercise, experience: ExperienceLevel): boolean {
+  if (exercise.independentDefault || !exercise.progressionGroup || exercise.progressionLevel == null) {
+    return true;
+  }
+  const cap = GENERATION_LEVEL_CAPS[exercise.progressionGroup]?.[experience];
+  return cap == null || exercise.progressionLevel <= cap;
+}
+
+/** Single eligibility filter for every default-generation pool (category, collapse and fallback pools). */
+function isDefaultCandidate(exercise: Exercise, experience: ExperienceLevel): boolean {
+  return (
+    exercise.progressionOnly !== true &&
+    isDifficultyAllowedForExperience(exercise.difficulty, experience) &&
+    isWithinGenerationCap(exercise, experience)
+  );
+}
+
 function ownedEquipment(userEquipment?: readonly EquipmentOption[]): ExerciseEquipment[] {
   if (!userEquipment || userEquipment.length === 0 || userEquipment.includes('none')) {
     return DEFAULT_EQUIPMENT;
@@ -95,7 +183,7 @@ function beginnerPool(
   equipment: readonly ExerciseEquipment[]
 ): Exercise[] {
   return EXERCISES.filter((exercise) => {
-    if (exercise.category !== category || exercise.difficulty !== 'beginner') {
+    if (exercise.category !== category || !isDefaultCandidate(exercise, 'beginner')) {
       return false;
     }
     if (exercise.id === 'push-ups') {
@@ -107,7 +195,7 @@ function beginnerPool(
 
 function noneEquipmentFallbacks(): Exercise[] {
   return EXERCISES.filter((exercise) => {
-    if (exercise.difficulty !== 'beginner' || exercise.id === 'push-ups') {
+    if (!isDefaultCandidate(exercise, 'beginner') || exercise.id === 'push-ups') {
       return false;
     }
     return isExerciseAvailable(exercise, ['none']);
@@ -146,26 +234,27 @@ function collapseProgressionGroups(
   experience: ExperienceLevel
 ): Exercise[] {
   const grouped = new Map<string, Exercise[]>();
-  const ungrouped: Exercise[] = [];
 
   for (const exercise of exercises) {
-    if (exercise.progressionGroup && exercise.progressionLevel != null) {
+    if (!exercise.independentDefault && exercise.progressionGroup && exercise.progressionLevel != null) {
       const current = grouped.get(exercise.progressionGroup) ?? [];
       current.push(exercise);
       grouped.set(exercise.progressionGroup, current);
-      continue;
     }
-    ungrouped.push(exercise);
   }
 
-  const selected = [...grouped.values()].map((members) => {
+  // A chain with a single eligible member has nothing to choose between, so that member keeps
+  // its library position among the standalone exercises; only real choices are collapsed.
+  const collapsible = [...grouped.values()].filter((members) => members.length > 1);
+  const selected = collapsible.map((members) => {
     const levels = [...new Set(members.map((item) => item.progressionLevel ?? 1))].sort(
       (a, b) => a - b
     );
     return closestVariation(members, targetProgressionLevel(levels, experience));
   });
+  const collapsed = new Set(collapsible.flat());
 
-  return [...selected, ...ungrouped];
+  return [...selected, ...exercises.filter((exercise) => !collapsed.has(exercise))];
 }
 
 function experiencePool(
@@ -174,7 +263,10 @@ function experiencePool(
   experience: ExperienceLevel
 ): Exercise[] {
   const available = EXERCISES.filter(
-    (exercise) => exercise.category === category && isExerciseAvailable(exercise, equipment)
+    (exercise) =>
+      exercise.category === category &&
+      isExerciseAvailable(exercise, equipment) &&
+      isDefaultCandidate(exercise, experience)
   );
   const collapsed = collapseProgressionGroups(available, experience);
   if (collapsed.length > 0) {
@@ -182,7 +274,10 @@ function experiencePool(
   }
 
   const noneInCategory = EXERCISES.filter(
-    (exercise) => exercise.category === category && isExerciseAvailable(exercise, ['none'])
+    (exercise) =>
+      exercise.category === category &&
+      isExerciseAvailable(exercise, ['none']) &&
+      isDefaultCandidate(exercise, experience)
   );
   const collapsedNone = collapseProgressionGroups(noneInCategory, experience);
   if (collapsedNone.length > 0) {
@@ -190,7 +285,10 @@ function experiencePool(
   }
 
   return collapseProgressionGroups(
-    EXERCISES.filter((exercise) => isExerciseAvailable(exercise, ['none'])),
+    EXERCISES.filter(
+      (exercise) =>
+        isExerciseAvailable(exercise, ['none']) && isDefaultCandidate(exercise, experience)
+    ),
     experience
   );
 }

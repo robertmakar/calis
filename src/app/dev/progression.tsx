@@ -6,9 +6,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getExerciseById, EXERCISES, type Exercise } from '@/constants/exercises';
 import {
-  evaluateExerciseProgression,
   formatPerformanceLine,
   formatProgressionStatus,
+  getExerciseProgressionStatus,
   runProgressionEvaluatorFixtures,
   type ExerciseProgressionResult,
 } from '@/lib/progression';
@@ -16,7 +16,6 @@ import {
   applyProgressionToExercise,
   formatExercisePrescription,
 } from '@/lib/personalized-workout';
-import { getWorkoutHistory } from '@/lib/workout-history';
 import { type SessionExercise } from '@/constants/workouts';
 
 function toDefaultSessionExercise(exercise: Exercise): SessionExercise {
@@ -54,11 +53,11 @@ export default function DevProgressionScreen() {
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      getWorkoutHistory().then((history) => {
+      getExerciseProgressionStatus(selectedId).then((value) => {
         if (!active) {
           return;
         }
-        setResult(evaluateExerciseProgression(selectedId, history));
+        setResult(value);
       });
       return () => {
         active = false;

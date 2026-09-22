@@ -15,7 +15,11 @@ import {
   resolvePreferredExerciseId,
   type ProgressionPreferences,
 } from '@/lib/progression-preferences';
-import { getUserPreferences, type EquipmentOption } from '@/lib/user-preferences';
+import {
+  getUserPreferences,
+  type EquipmentOption,
+  type ExperienceLevel,
+} from '@/lib/user-preferences';
 import { getWorkoutHistory, localDateKey, type CompletedWorkout } from '@/lib/workout-history';
 
 type WorkoutSession = {
@@ -138,7 +142,7 @@ export function personalizeWorkout(
     const resolved = resolveSessionExercise(exercise, preferences, equipment);
     return applyProgressionToExercise(
       resolved,
-      evaluateExerciseProgression(resolved.id, history, now)
+      evaluateExerciseProgression(resolved.id, history, now, { equipment })
     );
   });
 
@@ -153,10 +157,11 @@ export function getLevelUpOffers(
   workout: DailyWorkout,
   history: CompletedWorkout[],
   now = new Date(),
-  equipment: readonly EquipmentOption[] = ['none']
+  equipment: readonly EquipmentOption[] = ['none'],
+  experience?: ExperienceLevel
 ): LevelUpOffer[] {
   return workout.exercises.flatMap((exercise) => {
-    const result = evaluateExerciseProgression(exercise.id, history, now);
+    const result = evaluateExerciseProgression(exercise.id, history, now, { equipment, experience });
     if (result.status !== 'ready-for-next-variation' || !result.nextExerciseId || !result.nextExerciseName) {
       return [];
     }
@@ -252,7 +257,13 @@ export async function getTodaysLevelUpOffers(now = new Date()): Promise<LevelUpO
     getWorkoutHistory(),
     getUserPreferences(),
   ]);
-  return getLevelUpOffers(workout, history, now, userPreferences.equipment);
+  return getLevelUpOffers(
+    workout,
+    history,
+    now,
+    userPreferences.equipment,
+    userPreferences.experienceLevel
+  );
 }
 
 export async function beginPersonalizedWorkoutSession(now = new Date()): Promise<DailyWorkout> {

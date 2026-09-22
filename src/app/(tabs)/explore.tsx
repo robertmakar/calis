@@ -67,7 +67,12 @@ export default function ProgressScreen() {
           return;
         }
         setSummary(value);
-        const insights = getProgressInsights(history, preferences.equipment);
+        const insights = getProgressInsights(
+          history,
+          preferences.equipment,
+          new Date(),
+          preferences.experienceLevel
+        );
         setStronger(insights.stronger);
         setNextTarget(insights.nextTarget);
         const today = value.week.find((day) => day.isToday)?.date ?? localDateKey();

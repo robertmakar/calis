@@ -203,7 +203,10 @@ function ActiveWorkout({
         exercises
           .filter((item) =>
             hasLegitimateProgressionTarget(
-              evaluateExerciseProgression(item.id, history),
+              evaluateExerciseProgression(item.id, history, new Date(), {
+                equipment: preferences.equipment,
+                experience: preferences.experienceLevel,
+              }),
               preferences.equipment
             )
           )

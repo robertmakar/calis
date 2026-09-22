@@ -11,6 +11,11 @@ import { Calis } from '@/constants/theme';
 import { getExerciseById, type ExerciseCategory } from '@/constants/exercises';
 import { getPersonalizedWorkout } from '@/lib/personalized-workout';
 import { evaluateExerciseProgression } from '@/lib/progression';
+import {
+  getUserPreferences,
+  type EquipmentOption,
+  type ExperienceLevel,
+} from '@/lib/user-preferences';
 import { getCurrentStreak, getWorkoutHistory, isWorkoutCompletedToday } from '@/lib/workout-history';
 import { type DailyWorkout, type SessionExercise } from '@/constants/workouts';
 
@@ -40,8 +45,16 @@ function workoutFocusLine(workout: DailyWorkout) {
   return labels.length > 0 ? labels.join(' · ') : null;
 }
 
-function progressionHint(exerciseId: string, history: Parameters<typeof evaluateExerciseProgression>[1]) {
-  const result = evaluateExerciseProgression(exerciseId, history);
+function progressionHint(
+  exerciseId: string,
+  history: Parameters<typeof evaluateExerciseProgression>[1],
+  equipment: readonly EquipmentOption[],
+  experience: ExperienceLevel
+) {
+  const result = evaluateExerciseProgression(exerciseId, history, new Date(), {
+    equipment,
+    experience,
+  });
   if (result.status === 'increase-reps' && result.suggestedTarget != null) {
     return 'NEXT TARGET';
   }
@@ -106,17 +119,27 @@ export default function HomeScreen() {
 
   const loadHome = useCallback(() => {
     let active = true;
-    Promise.all([getPersonalizedWorkout(), getWorkoutHistory()]).then(([value, history]) => {
-      if (!active) {
-        return;
+    Promise.all([getPersonalizedWorkout(), getWorkoutHistory(), getUserPreferences()]).then(
+      ([value, history, preferences]) => {
+        if (!active) {
+          return;
+        }
+        setWorkout(value);
+        setHints(
+          Object.fromEntries(
+            value.exercises.map((exercise) => [
+              exercise.id,
+              progressionHint(
+                exercise.id,
+                history,
+                preferences.equipment,
+                preferences.experienceLevel
+              ),
+            ])
+          )
+        );
       }
-      setWorkout(value);
-      setHints(
-        Object.fromEntries(
-          value.exercises.map((exercise) => [exercise.id, progressionHint(exercise.id, history)])
-        )
-      );
-    });
+    );
     getCurrentStreak().then((value) => {
       if (active) {
         setStreak(value);

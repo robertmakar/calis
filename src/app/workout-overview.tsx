@@ -138,7 +138,10 @@ export default function WorkoutOverviewScreen() {
           nextWorkout.exercises
             .filter((exercise) =>
               hasLegitimateProgressionTarget(
-                evaluateExerciseProgression(exercise.id, history),
+                evaluateExerciseProgression(exercise.id, history, new Date(), {
+                  equipment: nextPrefs.equipment,
+                  experience: nextPrefs.experienceLevel,
+                }),
                 nextPrefs.equipment
               )
             )

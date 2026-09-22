@@ -21,7 +21,11 @@ import {
   releasePersonalizedWorkoutLock,
 } from '@/lib/personalized-workout';
 import { evaluateExerciseProgression } from '@/lib/progression';
-import { getUserPreferences, type EquipmentOption } from '@/lib/user-preferences';
+import {
+  getUserPreferences,
+  type EquipmentOption,
+  type ExperienceLevel,
+} from '@/lib/user-preferences';
 import { saveCalisWorkoutToAppleHealth } from '@/lib/apple-health';
 import {
   clearPendingWorkoutPerformance,
@@ -57,10 +61,11 @@ function nextUpTargets(
   workout: DailyWorkout,
   history: CompletedWorkout[],
   now: Date,
-  equipment: readonly EquipmentOption[]
+  equipment: readonly EquipmentOption[],
+  experience: ExperienceLevel
 ): NextUpTarget[] {
   return workout.exercises.flatMap((exercise) => {
-    const result = evaluateExerciseProgression(exercise.id, history, now);
+    const result = evaluateExerciseProgression(exercise.id, history, now, { equipment, experience });
 
     if (result.status === 'increase-reps' && result.suggestedTarget != null) {
       const next = applyProgressionToExercise(exercise, result);
@@ -155,7 +160,13 @@ export default function CompleteScreen() {
         return Promise.all([getCurrentStreak(now), getUserPreferences()]).then(
           ([nextStreak, preferences]) => ({
             nextStreak,
-            targets: nextUpTargets(workout, history, now, preferences.equipment),
+            targets: nextUpTargets(
+              workout,
+              history,
+              now,
+              preferences.equipment,
+              preferences.experienceLevel
+            ),
           })
         );
       })

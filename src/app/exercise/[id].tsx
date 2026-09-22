@@ -237,9 +237,7 @@ function YourProgress({
   const unit = unitFor(result);
   const target = personalizedTarget(exercise, result);
   const nextExercise =
-    result.status === 'ready-for-next-variation' &&
-    exercise.harderVariationId &&
-    result.nextExerciseId === exercise.harderVariationId
+    result.status === 'ready-for-next-variation' && result.nextExerciseId
       ? getExerciseById(result.nextExerciseId)
       : undefined;
   const showLevelUp = Boolean(nextExercise);
