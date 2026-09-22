@@ -1,3 +1,5 @@
+import { type ExperienceLevel } from '@/lib/user-preferences';
+
 export type ExerciseCategory =
   | 'push'
   | 'legs'
@@ -7,7 +9,7 @@ export type ExerciseCategory =
   | 'mobility'
   | 'conditioning';
 
-export type ExerciseDifficulty = 'beginner' | 'intermediate';
+export type ExerciseDifficulty = 'beginner' | 'intermediate' | 'advanced';
 
 export type ExerciseEquipment = 'none' | 'chair' | 'pull-up-bar' | 'gym';
 
@@ -31,20 +33,41 @@ export type AnimationType =
   | 'kneePushUp'
   | 'wallPushUp'
   | 'pushUp'
+  | 'diamondPushUp'
+  | 'declinePushUp'
+  | 'archerPushUp'
   | 'squat'
   | 'reverseLunge'
   | 'splitSquat'
   | 'assistedSplitSquat'
   | 'calfRaise'
+  | 'boxSquat'
+  | 'assistedPistolSquat'
+  | 'pistolSquat'
+  | 'bulgarianSplitSquat'
+  | 'shrimpSquat'
+  | 'singleLegCalfRaise'
   | 'gluteBridge'
   | 'singleLegGluteBridge'
   | 'goodMorning'
   | 'australianRow'
   | 'assistedAustralianRow'
+  | 'feetElevatedAustralianRow'
+  | 'archerAustralianRow'
   | 'plank'
   | 'deadBug'
   | 'birdDog'
   | 'sidePlank'
+  | 'kneePlank'
+  | 'shoulderTaps'
+  | 'longLeverPlank'
+  | 'extendedDeadBug'
+  | 'tuckHollowHold'
+  | 'hollowHold'
+  | 'hollowRocks'
+  | 'kneeSidePlank'
+  | 'sidePlankHipDip'
+  | 'starPlank'
   | 'crunch'
   | 'reverseCrunch'
   | 'catCow'
@@ -62,7 +85,22 @@ export type ProgressionGroup =
   | 'push-up'
   | 'split-squat'
   | 'glute-bridge'
-  | 'australian-row';
+  | 'australian-row'
+  | 'plank'
+  | 'hollow'
+  | 'side-plank'
+  | 'squat'
+  | 'calf-raise';
+
+/**
+ * Optional per-exercise ladder override. When absent, the ladder is
+ * reps: default → max(12, default) step 1; holds: default → max(40, default) step 5.
+ * The ceiling must be reachable from the default in whole steps.
+ */
+export type ExerciseProgressionConfig = {
+  ceiling?: number;
+  step?: number;
+};
 
 export type Exercise = {
   id: string;
@@ -81,6 +119,22 @@ export type Exercise = {
   progressionLevel?: number;
   easierVariationId?: string;
   harderVariationId?: string;
+  progression?: ExerciseProgressionConfig;
+  /**
+   * Reached only through progression (level-ups, saved variation preferences, replacement lists);
+   * never picked by default workout generation. Does not affect progression traversal.
+   */
+  progressionOnly?: boolean;
+  /**
+   * Keeps its own default-generation slot even as a chain member: chain collapse and chain
+   * generation caps treat it as a standalone exercise. Progression is unaffected.
+   */
+  independentDefault?: boolean;
+  /**
+   * Lowest experience level that can earn this variation through progression (level-ups).
+   * Checked in addition to the difficulty rules; generation and manual selection are unaffected.
+   */
+  minProgressionExperience?: ExperienceLevel;
 };
 
 export const EXERCISES: Exercise[] = [
@@ -153,6 +207,82 @@ export const EXERCISES: Exercise[] = [
     progressionGroup: 'push-up',
     progressionLevel: 4,
     easierVariationId: 'knee-push-ups',
+    harderVariationId: 'diamond-push-ups',
+  },
+  {
+    id: 'diamond-push-ups',
+    name: 'Diamond Push-ups',
+    category: 'push',
+    difficulty: 'intermediate',
+    equipment: 'none',
+    primaryMuscles: ['triceps', 'chest', 'shoulders', 'core'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 6,
+    animationType: 'diamondPushUp',
+    cue: 'Hands together under your chest. Keep your elbows close as you lower and press up.',
+    instructions: 'Start in a plank with your hands together under your chest, thumbs and index fingers forming a diamond. Lower your chest to your hands, then press back up.',
+    progressionGroup: 'push-up',
+    progressionLevel: 5,
+    easierVariationId: 'push-ups',
+    harderVariationId: 'decline-push-ups',
+    progression: { ceiling: 10 },
+  },
+  {
+    id: 'decline-push-ups',
+    name: 'Decline Push-ups',
+    category: 'push',
+    difficulty: 'intermediate',
+    equipment: 'chair',
+    primaryMuscles: ['chest', 'shoulders', 'triceps', 'core'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 6,
+    animationType: 'declinePushUp',
+    cue: 'Feet up on the chair, body in one line. Lower your chest toward the floor, then press up.',
+    instructions: 'Place your feet on a sturdy chair and your hands on the floor under your shoulders. Lower your chest toward the floor, then press back up.',
+    progressionGroup: 'push-up',
+    progressionLevel: 6,
+    easierVariationId: 'diamond-push-ups',
+    harderVariationId: 'archer-push-ups',
+    progression: { ceiling: 10 },
+  },
+  {
+    id: 'archer-push-ups',
+    name: 'Archer Push-ups',
+    category: 'push',
+    difficulty: 'advanced',
+    equipment: 'none',
+    primaryMuscles: ['chest', 'shoulders', 'triceps', 'core'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 4,
+    animationType: 'archerPushUp',
+    cue: 'Reps are per side. Hands wide — lower toward one hand while the other arm stays straight, then switch.',
+    instructions: 'Reps are per side. Start in a plank with your hands placed wide. Bend one arm and lower toward that hand while keeping the other arm straight, then press up. Alternate sides.',
+    progressionGroup: 'push-up',
+    progressionLevel: 7,
+    easierVariationId: 'decline-push-ups',
+    progression: { ceiling: 8 },
+  },
+  {
+    id: 'box-squats',
+    name: 'Box Squats',
+    category: 'legs',
+    difficulty: 'beginner',
+    equipment: 'chair',
+    primaryMuscles: ['quads', 'glutes'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 10,
+    animationType: 'boxSquat',
+    cue: 'Sit back until you lightly touch the chair, then stand up tall.',
+    instructions: 'Stand in front of a sturdy chair with feet shoulder-width apart. Sit your hips back until you lightly touch the seat, then stand up by pressing through your feet.',
+    progressionGroup: 'squat',
+    progressionLevel: 1,
+    harderVariationId: 'bodyweight-squats',
+    progression: { ceiling: 15 },
+    progressionOnly: true,
   },
   {
     id: 'bodyweight-squats',
@@ -167,6 +297,49 @@ export const EXERCISES: Exercise[] = [
     animationType: 'squat',
     cue: 'Stand tall with your feet about shoulder-width apart. Sit your hips back, then stand up.',
     instructions: 'Sit your hips back and down while keeping your heels down. Stand up by pressing through your feet.',
+    progressionGroup: 'squat',
+    progressionLevel: 2,
+    easierVariationId: 'box-squats',
+    harderVariationId: 'assisted-pistol-squats',
+  },
+  {
+    id: 'assisted-pistol-squats',
+    name: 'Assisted Pistol Squats',
+    category: 'legs',
+    difficulty: 'intermediate',
+    equipment: 'none',
+    primaryMuscles: ['quads', 'glutes'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 6,
+    animationType: 'assistedPistolSquat',
+    cue: 'Reps are per side. Hold a support, reach one leg forward and squat down on the other.',
+    instructions: 'Reps are per side. Hold a wall, door frame or sturdy post. Stand on one leg with the other reaching forward, sit down as low as you can control, then stand up using the support only as needed.',
+    progressionGroup: 'squat',
+    progressionLevel: 3,
+    easierVariationId: 'bodyweight-squats',
+    harderVariationId: 'pistol-squats',
+    progression: { ceiling: 10 },
+    progressionOnly: true,
+  },
+  {
+    id: 'pistol-squats',
+    name: 'Pistol Squats',
+    category: 'legs',
+    difficulty: 'advanced',
+    equipment: 'none',
+    primaryMuscles: ['quads', 'glutes', 'core'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 4,
+    animationType: 'pistolSquat',
+    cue: 'Reps are per side. Reach one leg forward and squat all the way down on the other, then stand.',
+    instructions: 'Reps are per side. Stand on one leg with the other held straight out in front. Sit all the way down with control, keeping your heel down, then stand back up without support.',
+    progressionGroup: 'squat',
+    progressionLevel: 4,
+    easierVariationId: 'assisted-pistol-squats',
+    progression: { ceiling: 8 },
+    progressionOnly: true,
   },
   {
     id: 'reverse-lunges',
@@ -181,6 +354,50 @@ export const EXERCISES: Exercise[] = [
     animationType: 'reverseLunge',
     cue: 'Step one foot back, lower with control, then return to standing.',
     instructions: 'From standing, step one leg backward and bend both knees. Push through the front foot to stand back up. Alternate sides.',
+    progressionGroup: 'split-squat',
+    progressionLevel: 3,
+    easierVariationId: 'split-squats',
+    harderVariationId: 'bulgarian-split-squats',
+    independentDefault: true,
+  },
+  {
+    id: 'bulgarian-split-squats',
+    name: 'Bulgarian Split Squats',
+    category: 'legs',
+    difficulty: 'intermediate',
+    equipment: 'chair',
+    primaryMuscles: ['quads', 'glutes'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 6,
+    animationType: 'bulgarianSplitSquat',
+    cue: 'Reps are per side. Back foot on the chair, lower straight down, then drive up through the front foot.',
+    instructions: 'Reps are per side. Stand a stride in front of a sturdy chair and rest the top of your back foot on the seat. Lower until your front thigh is near parallel, then press back up.',
+    progressionGroup: 'split-squat',
+    progressionLevel: 4,
+    easierVariationId: 'reverse-lunges',
+    harderVariationId: 'shrimp-squats',
+    progression: { ceiling: 10 },
+    progressionOnly: true,
+  },
+  {
+    id: 'shrimp-squats',
+    name: 'Shrimp Squats',
+    category: 'legs',
+    difficulty: 'advanced',
+    equipment: 'none',
+    primaryMuscles: ['quads', 'glutes', 'core'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 4,
+    animationType: 'shrimpSquat',
+    cue: 'Reps are per side. Hold your back foot behind you and lower until that knee touches down, then stand.',
+    instructions: 'Reps are per side. Stand on one leg and bend the other knee, holding that foot behind you. Lower slowly until the back knee touches the floor, then drive up through the standing leg.',
+    progressionGroup: 'split-squat',
+    progressionLevel: 5,
+    easierVariationId: 'bulgarian-split-squats',
+    progression: { ceiling: 8 },
+    progressionOnly: true,
   },
   {
     id: 'split-squats',
@@ -198,6 +415,7 @@ export const EXERCISES: Exercise[] = [
     progressionGroup: 'split-squat',
     progressionLevel: 2,
     easierVariationId: 'assisted-split-squats',
+    harderVariationId: 'reverse-lunges',
   },
   {
     id: 'assisted-split-squats',
@@ -229,6 +447,28 @@ export const EXERCISES: Exercise[] = [
     animationType: 'calfRaise',
     cue: 'Rise onto your toes, pause, then lower slowly.',
     instructions: 'Stand tall and lift your heels as high as you can. Pause, then lower with control.',
+    progressionGroup: 'calf-raise',
+    progressionLevel: 1,
+    harderVariationId: 'single-leg-calf-raises',
+  },
+  {
+    id: 'single-leg-calf-raises',
+    name: 'Single-Leg Calf Raises',
+    category: 'legs',
+    difficulty: 'intermediate',
+    equipment: 'none',
+    primaryMuscles: ['calves'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 8,
+    animationType: 'singleLegCalfRaise',
+    cue: 'Reps are per side. Balance on one foot, rise onto your toes, pause, then lower slowly.',
+    instructions: 'Reps are per side. Stand on one foot with a fingertip on a wall for balance. Lift your heel as high as you can, pause, then lower with control.',
+    progressionGroup: 'calf-raise',
+    progressionLevel: 2,
+    easierVariationId: 'calf-raises',
+    progression: { ceiling: 15 },
+    progressionOnly: true,
   },
   {
     id: 'glute-bridges',
@@ -294,6 +534,47 @@ export const EXERCISES: Exercise[] = [
     progressionGroup: 'australian-row',
     progressionLevel: 2,
     easierVariationId: 'assisted-australian-rows',
+    harderVariationId: 'feet-elevated-australian-rows',
+  },
+  {
+    id: 'feet-elevated-australian-rows',
+    name: 'Feet-Elevated Australian Rows',
+    category: 'pull',
+    difficulty: 'intermediate',
+    equipment: 'pull-up-bar',
+    primaryMuscles: ['back', 'biceps'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 6,
+    animationType: 'feetElevatedAustralianRow',
+    cue: 'Feet up so your body is level. Pull your chest to the bar, then lower with control.',
+    instructions: 'Hold a low bar and rest your heels on a raised surface so your body is level. Keep it straight, pull your chest to the bar, then lower slowly.',
+    progressionGroup: 'australian-row',
+    progressionLevel: 3,
+    easierVariationId: 'australian-rows',
+    harderVariationId: 'archer-australian-rows',
+    progression: { ceiling: 10 },
+    progressionOnly: true,
+    minProgressionExperience: 'some-experience',
+  },
+  {
+    id: 'archer-australian-rows',
+    name: 'Archer Australian Rows',
+    category: 'pull',
+    difficulty: 'advanced',
+    equipment: 'pull-up-bar',
+    primaryMuscles: ['back', 'biceps', 'core'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 4,
+    animationType: 'archerAustralianRow',
+    cue: 'Reps are per side. Hands wide — pull toward one hand while the other arm stays straight.',
+    instructions: 'Reps are per side. Take a wide grip under a low bar. Pull your chest toward one hand while keeping the other arm straight along the bar, lower with control, then switch sides.',
+    progressionGroup: 'australian-row',
+    progressionLevel: 4,
+    easierVariationId: 'feet-elevated-australian-rows',
+    progression: { ceiling: 8 },
+    progressionOnly: true,
   },
   {
     id: 'assisted-australian-rows',
@@ -313,6 +594,24 @@ export const EXERCISES: Exercise[] = [
     harderVariationId: 'australian-rows',
   },
   {
+    id: 'knee-plank',
+    name: 'Knee Plank',
+    category: 'core',
+    difficulty: 'beginner',
+    equipment: 'none',
+    primaryMuscles: ['core', 'shoulders'],
+    type: 'hold',
+    defaultSets: 3,
+    defaultRepsOrDuration: 20,
+    animationType: 'kneePlank',
+    cue: 'Forearms and knees down. Keep a straight line from knees to shoulders and breathe steadily.',
+    instructions: 'Support yourself on your forearms and knees. Keep your hips in line with your shoulders and knees, and hold.',
+    progressionGroup: 'plank',
+    progressionLevel: 1,
+    harderVariationId: 'plank',
+    progressionOnly: true,
+  },
+  {
     id: 'plank',
     name: 'Plank',
     category: 'core',
@@ -325,6 +624,48 @@ export const EXERCISES: Exercise[] = [
     animationType: 'plank',
     cue: 'Keep your body in a straight line from head to heels. Brace your core and breathe steadily.',
     instructions: 'Support yourself on your forearms and toes. Keep your hips in line with your shoulders and heels.',
+    progressionGroup: 'plank',
+    progressionLevel: 2,
+    easierVariationId: 'knee-plank',
+    harderVariationId: 'shoulder-taps',
+  },
+  {
+    id: 'shoulder-taps',
+    name: 'Plank Shoulder Taps',
+    category: 'core',
+    difficulty: 'intermediate',
+    equipment: 'none',
+    primaryMuscles: ['core', 'shoulders'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 8,
+    animationType: 'shoulderTaps',
+    cue: 'Each tap counts as one rep. From a high plank, tap one hand to the opposite shoulder, then alternate. Keep your hips still.',
+    instructions: 'Start in a high plank with your hands under your shoulders and feet a little wider than hips. Lift one hand to tap the opposite shoulder, place it back, then switch. Each tap counts as one rep.',
+    progressionGroup: 'plank',
+    progressionLevel: 3,
+    easierVariationId: 'plank',
+    harderVariationId: 'long-lever-plank',
+    progression: { ceiling: 16, step: 2 },
+    progressionOnly: true,
+  },
+  {
+    id: 'long-lever-plank',
+    name: 'Long-Lever Plank',
+    category: 'core',
+    difficulty: 'advanced',
+    equipment: 'none',
+    primaryMuscles: ['core', 'shoulders'],
+    type: 'hold',
+    defaultSets: 3,
+    defaultRepsOrDuration: 15,
+    animationType: 'longLeverPlank',
+    cue: 'Forearms placed ahead of your shoulders. Brace hard and keep your hips level.',
+    instructions: 'Set up in a forearm plank, then walk your elbows forward so they sit ahead of your shoulders. Keep a straight line from head to heels and hold.',
+    progressionGroup: 'plank',
+    progressionLevel: 4,
+    easierVariationId: 'shoulder-taps',
+    progressionOnly: true,
   },
   {
     id: 'dead-bug',
@@ -339,6 +680,85 @@ export const EXERCISES: Exercise[] = [
     animationType: 'deadBug',
     cue: 'Keep your low back down. Extend opposite arm and leg, then return.',
     instructions: 'Lie on your back with arms up and knees bent. Slowly extend one arm and the opposite leg, then switch.',
+    progressionGroup: 'hollow',
+    progressionLevel: 1,
+    harderVariationId: 'extended-dead-bug',
+  },
+  {
+    id: 'extended-dead-bug',
+    name: 'Extended Dead Bug',
+    category: 'core',
+    difficulty: 'beginner',
+    equipment: 'none',
+    primaryMuscles: ['core'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 8,
+    animationType: 'extendedDeadBug',
+    cue: 'Keep your low back down. Reach one arm overhead and the opposite leg long, then switch.',
+    instructions: 'Lie on your back with arms up and knees bent. Lower one arm all the way overhead while straightening the opposite leg just above the floor, then return and switch.',
+    progressionGroup: 'hollow',
+    progressionLevel: 2,
+    easierVariationId: 'dead-bug',
+    harderVariationId: 'tuck-hollow-hold',
+    progressionOnly: true,
+  },
+  {
+    id: 'tuck-hollow-hold',
+    name: 'Tuck Hollow Hold',
+    category: 'core',
+    difficulty: 'intermediate',
+    equipment: 'none',
+    primaryMuscles: ['core', 'hip-flexors'],
+    type: 'hold',
+    defaultSets: 3,
+    defaultRepsOrDuration: 15,
+    animationType: 'tuckHollowHold',
+    cue: 'Low back pressed down, knees tucked, shoulders lifted. Hold still and breathe.',
+    instructions: 'Lie on your back, press your lower back into the floor, and lift your shoulders. Pull your knees in over your hips with arms reaching forward, and hold.',
+    progressionGroup: 'hollow',
+    progressionLevel: 3,
+    easierVariationId: 'extended-dead-bug',
+    harderVariationId: 'hollow-hold',
+    progression: { ceiling: 30 },
+    progressionOnly: true,
+  },
+  {
+    id: 'hollow-hold',
+    name: 'Hollow Hold',
+    category: 'core',
+    difficulty: 'intermediate',
+    equipment: 'none',
+    primaryMuscles: ['core', 'hip-flexors'],
+    type: 'hold',
+    defaultSets: 3,
+    defaultRepsOrDuration: 15,
+    animationType: 'hollowHold',
+    cue: 'Low back pressed down. Arms overhead and legs long, shoulders and feet just off the floor.',
+    instructions: 'Lie on your back and press your lower back into the floor. Lift your shoulders and legs, reach your arms overhead, and hold a shallow banana shape.',
+    progressionGroup: 'hollow',
+    progressionLevel: 4,
+    easierVariationId: 'tuck-hollow-hold',
+    harderVariationId: 'hollow-rocks',
+    progressionOnly: true,
+  },
+  {
+    id: 'hollow-rocks',
+    name: 'Hollow Rocks',
+    category: 'core',
+    difficulty: 'advanced',
+    equipment: 'none',
+    primaryMuscles: ['core', 'hip-flexors'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 6,
+    animationType: 'hollowRocks',
+    cue: 'Hold the hollow shape and rock from shoulders to hips without bending.',
+    instructions: 'Get into a hollow hold. Keeping the shape rigid, rock back toward your shoulders and forward toward your hips. Each rock back and forth counts as one rep.',
+    progressionGroup: 'hollow',
+    progressionLevel: 5,
+    easierVariationId: 'hollow-hold',
+    progressionOnly: true,
   },
   {
     id: 'bird-dog',
@@ -355,6 +775,25 @@ export const EXERCISES: Exercise[] = [
     instructions: 'From hands and knees, extend opposite arm and leg without rotating your hips. Return and switch sides.',
   },
   {
+    id: 'knee-side-plank',
+    name: 'Knee Side Plank',
+    category: 'core',
+    difficulty: 'beginner',
+    equipment: 'none',
+    primaryMuscles: ['core', 'shoulders'],
+    type: 'hold',
+    defaultSets: 3,
+    defaultRepsOrDuration: 15,
+    animationType: 'kneeSidePlank',
+    cue: 'Forearm under your shoulder, knees bent. Lift your hips in line and hold, then switch sides.',
+    instructions: 'Lie on your side with your knees bent and forearm under your shoulder. Lift your hips so they line up with your knees and shoulders. Hold, then switch sides.',
+    progressionGroup: 'side-plank',
+    progressionLevel: 1,
+    harderVariationId: 'side-plank',
+    progression: { ceiling: 30 },
+    progressionOnly: true,
+  },
+  {
     id: 'side-plank',
     name: 'Side Plank',
     category: 'core',
@@ -367,6 +806,49 @@ export const EXERCISES: Exercise[] = [
     animationType: 'sidePlank',
     cue: 'Stack your hips. Hold a straight line from head to feet.',
     instructions: 'Lie on your side and lift your hips, supporting on your forearm. Hold, then switch sides.',
+    progressionGroup: 'side-plank',
+    progressionLevel: 2,
+    easierVariationId: 'knee-side-plank',
+    harderVariationId: 'side-plank-hip-dips',
+  },
+  {
+    id: 'side-plank-hip-dips',
+    name: 'Side Plank Hip Dips',
+    category: 'core',
+    difficulty: 'intermediate',
+    equipment: 'none',
+    primaryMuscles: ['core', 'glutes'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 8,
+    animationType: 'sidePlankHipDip',
+    cue: 'Reps are per side. From a side plank, lower your hip toward the floor and lift it back up.',
+    instructions: 'Reps are per side. Set up in a forearm side plank. Lower your hip until it nearly touches the floor, then lift it back into line. Finish the reps, then switch sides.',
+    progressionGroup: 'side-plank',
+    progressionLevel: 3,
+    easierVariationId: 'side-plank',
+    harderVariationId: 'star-plank',
+    progression: { ceiling: 16, step: 2 },
+    progressionOnly: true,
+  },
+  {
+    id: 'star-plank',
+    name: 'Star Plank',
+    category: 'core',
+    difficulty: 'advanced',
+    equipment: 'none',
+    primaryMuscles: ['core', 'shoulders', 'glutes'],
+    type: 'hold',
+    defaultSets: 3,
+    defaultRepsOrDuration: 10,
+    animationType: 'starPlank',
+    cue: 'Side plank on a straight arm with your top arm and top leg raised. Hold, then switch sides.',
+    instructions: 'Set up in a side plank on your hand. Raise your top arm toward the ceiling and lift your top leg, keeping your hips high. Hold, then switch sides.',
+    progressionGroup: 'side-plank',
+    progressionLevel: 4,
+    easierVariationId: 'side-plank-hip-dips',
+    progression: { ceiling: 30 },
+    progressionOnly: true,
   },
   {
     id: 'crunches',
@@ -585,6 +1067,36 @@ const EXERCISE_GUIDES: Record<string, ExerciseGuide> = {
     ],
     formTips: ['Brace your core.', 'Keep your elbows slightly tucked.', 'Do not let your head hang.'],
   },
+  'diamond-push-ups': {
+    description: 'A close-hand push-up that shifts more of the work to your triceps.',
+    howTo: [
+      'Start in a plank with your hands together under your chest.',
+      'Touch thumbs and index fingers to form a diamond.',
+      'Lower your chest toward your hands, elbows close to your sides.',
+      'Press back up until your arms are straight.',
+    ],
+    formTips: ['Keep your body in one line.', 'Keep your elbows close.', 'Move slowly and with control.'],
+  },
+  'decline-push-ups': {
+    description: 'A push-up with your feet raised, putting more load on your chest and shoulders.',
+    howTo: [
+      'Place your feet on a sturdy chair behind you.',
+      'Put your hands on the floor under your shoulders.',
+      'Lower your chest toward the floor.',
+      'Press back up without letting your hips sag.',
+    ],
+    formTips: ['Use a stable chair that will not slide.', 'Brace your core.', 'Keep your neck neutral.'],
+  },
+  'archer-push-ups': {
+    description: 'An advanced one-sided push-up that builds toward single-arm strength. Reps are counted per side.',
+    howTo: [
+      'Start in a plank with your hands placed wide.',
+      'Bend one arm and shift your chest toward that hand.',
+      'Keep the other arm straight as it slides out to the side.',
+      'Press back to the middle, then repeat on the other side.',
+    ],
+    formTips: ['Reps are per side.', 'Keep your hips level.', 'Only lower as far as you can control.'],
+  },
   'bodyweight-squats': {
     description: 'A simple lower-body strength move. Sit your hips back, then stand up tall.',
     howTo: [
@@ -634,6 +1146,66 @@ const EXERCISE_GUIDES: Record<string, ExerciseGuide> = {
       'Lower your heels slowly.',
     ],
     formTips: ['Keep your ankles steady.', 'Do not bounce.', 'Hold a wall if you need balance.'],
+  },
+  'box-squats': {
+    description: 'A squat to a chair that teaches depth and control with a safe target.',
+    howTo: [
+      'Stand in front of a sturdy chair, feet shoulder-width apart.',
+      'Sit your hips back and down.',
+      'Lightly touch the seat without sitting down.',
+      'Stand up by pressing through your feet.',
+    ],
+    formTips: ['Use a chair that will not slide.', 'Keep your chest up.', 'Touch the seat lightly.'],
+  },
+  'assisted-pistol-squats': {
+    description: 'A single-leg squat with light support, building toward the full pistol.',
+    howTo: [
+      'Hold a wall, door frame or sturdy post.',
+      'Stand on one leg with the other reaching forward.',
+      'Sit down as low as you can control.',
+      'Stand up, using the support only as needed.',
+    ],
+    formTips: ['Reps are per side.', 'Keep your standing heel down.', 'Use less support over time.'],
+  },
+  'pistol-squats': {
+    description: 'An advanced single-leg squat through full depth without support.',
+    howTo: [
+      'Stand on one leg with the other held straight out in front.',
+      'Reach your arms forward for balance.',
+      'Sit all the way down with control.',
+      'Stand back up without support.',
+    ],
+    formTips: ['Reps are per side.', 'Keep your heel down.', 'Return to assisted pistols if you lose balance.'],
+  },
+  'bulgarian-split-squats': {
+    description: 'A rear-foot-elevated split squat that loads the front leg harder.',
+    howTo: [
+      'Stand a stride in front of a sturdy chair.',
+      'Rest the top of your back foot on the seat.',
+      'Lower until your front thigh is near parallel.',
+      'Press back up through the front foot.',
+    ],
+    formTips: ['Reps are per side.', 'Keep your torso tall.', 'Use a chair that will not slide.'],
+  },
+  'shrimp-squats': {
+    description: 'An advanced single-leg squat with the back leg bent behind you.',
+    howTo: [
+      'Stand on one leg.',
+      'Bend the other knee and hold that foot behind you.',
+      'Lower slowly until the back knee touches the floor.',
+      'Drive up through the standing leg.',
+    ],
+    formTips: ['Reps are per side.', 'Lean forward slightly for balance.', 'Use a soft surface under the back knee.'],
+  },
+  'single-leg-calf-raises': {
+    description: 'A one-leg calf raise that doubles the load on each calf.',
+    howTo: [
+      'Stand on one foot.',
+      'Rest a fingertip on a wall for balance.',
+      'Lift your heel as high as you can.',
+      'Pause, then lower with control.',
+    ],
+    formTips: ['Reps are per side.', 'Move slowly.', 'Keep the knee soft, not locked.'],
   },
   'glute-bridges': {
     description: 'A floor exercise that strengthens the glutes and the back of your legs.',
@@ -685,6 +1257,26 @@ const EXERCISE_GUIDES: Record<string, ExerciseGuide> = {
     ],
     formTips: ['Keep your shoulders down.', 'Move your chest to the bar, not your hips.', 'Use a range you can control.'],
   },
+  'feet-elevated-australian-rows': {
+    description: 'A level-body row with your feet raised, which puts more of your weight on your back and arms.',
+    howTo: [
+      'Hold a low bar with an overhand grip.',
+      'Rest your heels on a raised surface so your body is level.',
+      'Keep your body straight and pull your chest to the bar.',
+      'Lower with control.',
+    ],
+    formTips: ['Squeeze your shoulder blades together.', 'Do not let your hips sag.', 'Lower your feet if you cannot reach the bar.'],
+  },
+  'archer-australian-rows': {
+    description: 'An advanced one-sided row that builds toward single-arm pulling strength.',
+    howTo: [
+      'Take a wide grip under a low bar.',
+      'Pull your chest toward one hand.',
+      'Keep the other arm straight along the bar.',
+      'Lower with control, then switch sides.',
+    ],
+    formTips: ['Reps are per side.', 'Keep your hips level.', 'Do not twist your torso.'],
+  },
   plank: {
     description: 'A still hold that builds core strength and teaches you to keep a straight body line.',
     howTo: [
@@ -724,6 +1316,106 @@ const EXERCISE_GUIDES: Record<string, ExerciseGuide> = {
       'Hold, then switch sides.',
     ],
     formTips: ['Keep your hips stacked.', 'Do not roll forward.', 'Start with a shorter hold if needed.'],
+  },
+  'knee-plank': {
+    description: 'An easier plank on your knees that builds the same braced position.',
+    howTo: [
+      'Place your forearms on the floor with elbows under your shoulders.',
+      'Rest on your knees with your feet behind you.',
+      'Lift your hips so your body is straight from knees to shoulders.',
+      'Hold while breathing steadily.',
+    ],
+    formTips: ['Keep your hips in line.', 'Brace your core.', 'Do not hold your breath.'],
+  },
+  'shoulder-taps': {
+    description: 'A high plank with alternating shoulder taps that trains your core to resist rotation.',
+    howTo: [
+      'Start in a high plank with hands under your shoulders.',
+      'Set your feet a little wider than your hips.',
+      'Tap one hand to the opposite shoulder, then place it back.',
+      'Alternate sides. Each tap counts as one rep.',
+    ],
+    formTips: ['Keep your hips still.', 'Move slowly.', 'Widen your feet if you rock side to side.'],
+  },
+  'long-lever-plank': {
+    description: 'A harder plank with your elbows ahead of your shoulders, which lengthens the lever on your core.',
+    howTo: [
+      'Start in a forearm plank.',
+      'Walk your elbows forward a few inches past your shoulders.',
+      'Brace hard and keep your body straight.',
+      'Hold while breathing steadily.',
+    ],
+    formTips: ['Keep your hips level.', 'Squeeze your glutes.', 'Move your elbows closer if your back arches.'],
+  },
+  'extended-dead-bug': {
+    description: 'A dead bug with a longer reach that adds more load to your core.',
+    howTo: [
+      'Lie on your back with arms up and knees bent above your hips.',
+      'Press your lower back gently into the floor.',
+      'Lower one arm overhead while straightening the opposite leg just above the floor.',
+      'Return, then switch sides.',
+    ],
+    formTips: ['Keep your lower back down.', 'Move slowly.', 'Shorten the reach if your back lifts.'],
+  },
+  'tuck-hollow-hold': {
+    description: 'A tucked version of the hollow hold that teaches the gymnastics core position.',
+    howTo: [
+      'Lie on your back and press your lower back into the floor.',
+      'Lift your head and shoulders.',
+      'Pull your knees in over your hips.',
+      'Reach your arms forward and hold.',
+    ],
+    formTips: ['Keep your lower back down.', 'Keep your chin slightly tucked.', 'Breathe steadily.'],
+  },
+  'hollow-hold': {
+    description: 'The classic gymnastics core hold with long arms and legs.',
+    howTo: [
+      'Lie on your back and press your lower back into the floor.',
+      'Lift your shoulders and reach your arms overhead.',
+      'Straighten your legs and lift them just off the floor.',
+      'Hold the shallow banana shape.',
+    ],
+    formTips: ['Keep your lower back down.', 'Raise your legs higher if your back lifts.', 'Breathe steadily.'],
+  },
+  'hollow-rocks': {
+    description: 'An advanced dynamic hollow hold that rocks while staying rigid.',
+    howTo: [
+      'Get into a hollow hold.',
+      'Keep your arms and legs still.',
+      'Rock back toward your shoulders, then forward toward your hips.',
+      'Each rock back and forth counts as one rep.',
+    ],
+    formTips: ['Stay rigid.', 'Keep your lower back pressed down.', 'Make the rock smaller if the shape breaks.'],
+  },
+  'knee-side-plank': {
+    description: 'An easier side plank on your knees that builds side-body strength.',
+    howTo: [
+      'Lie on your side with knees bent and forearm under your shoulder.',
+      'Lift your hips so they line up with your knees and shoulders.',
+      'Hold.',
+      'Switch sides.',
+    ],
+    formTips: ['Keep your hips stacked.', 'Do not roll forward.', 'Push the floor away with your forearm.'],
+  },
+  'side-plank-hip-dips': {
+    description: 'A side plank with controlled hip dips that works your obliques through a range of motion.',
+    howTo: [
+      'Set up in a forearm side plank.',
+      'Lower your hip until it nearly touches the floor.',
+      'Lift it back into a straight line.',
+      'Finish the reps, then switch sides.',
+    ],
+    formTips: ['Reps are per side.', 'Move slowly.', 'Keep your hips stacked.'],
+  },
+  'star-plank': {
+    description: 'An advanced side plank with the top arm and leg raised.',
+    howTo: [
+      'Set up in a side plank on your hand.',
+      'Raise your top arm toward the ceiling.',
+      'Lift your top leg while keeping your hips high.',
+      'Hold, then switch sides.',
+    ],
+    formTips: ['Keep your hips high.', 'Stack your shoulder over your wrist.', 'Lower the top leg if you lose balance.'],
   },
   crunches: {
     description: 'A small sit-up that trains the front of your core without using momentum.',
@@ -920,6 +1612,49 @@ export function isExerciseAvailable(
   return owned.has(exercise.equipment);
 }
 
+function findAvailableVariation(
+  exercise: Exercise,
+  key: 'harderVariationId' | 'easierVariationId',
+  userEquipment: readonly ExerciseEquipment[],
+  isWithinLimit?: (candidate: Exercise) => boolean
+): Exercise | undefined {
+  const seen = new Set<string>([exercise.id]);
+  let cursor = exercise[key] ? getExerciseById(exercise[key]) : undefined;
+  while (cursor && !seen.has(cursor.id)) {
+    if (isWithinLimit && !isWithinLimit(cursor)) {
+      return undefined;
+    }
+    if (isExerciseAvailable(cursor, userEquipment)) {
+      return cursor;
+    }
+    seen.add(cursor.id);
+    const nextId = cursor[key];
+    cursor = nextId ? getExerciseById(nextId) : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Nearest harder variation in the chain the user can perform, skipping unavailable steps.
+ * `isWithinLimit` (e.g. the experience difficulty ceiling) ends the walk at the first
+ * variation that fails it, since everything further up the chain is harder still.
+ */
+export function getNextAvailableVariation(
+  exercise: Exercise,
+  userEquipment: readonly ExerciseEquipment[],
+  isWithinLimit?: (candidate: Exercise) => boolean
+): Exercise | undefined {
+  return findAvailableVariation(exercise, 'harderVariationId', userEquipment, isWithinLimit);
+}
+
+/** Nearest easier variation in the chain the user can perform, skipping unavailable steps. */
+export function getPreviousAvailableVariation(
+  exercise: Exercise,
+  userEquipment: readonly ExerciseEquipment[]
+): Exercise | undefined {
+  return findAvailableVariation(exercise, 'easierVariationId', userEquipment);
+}
+
 export type ExerciseProgressionIssue = {
   exerciseId?: string;
   message: string;
@@ -956,6 +1691,32 @@ export function validateExerciseProgression(
         exerciseId: id,
         message: `harderVariationId "${harderVariationId}" does not exist`,
       });
+    }
+
+    if (exercise.progression) {
+      const { ceiling, step } = exercise.progression;
+      if (step != null && (!Number.isInteger(step) || step < 1)) {
+        issues.push({ exerciseId: id, message: 'progression.step must be a positive integer' });
+      }
+      if (ceiling != null) {
+        const start = exercise.defaultRepsOrDuration;
+        const increment = step ?? (exercise.type === 'hold' ? 5 : 1);
+        if (!Number.isInteger(ceiling) || ceiling < start) {
+          issues.push({
+            exerciseId: id,
+            message: 'progression.ceiling must be an integer at or above defaultRepsOrDuration',
+          });
+        } else if (increment >= 1 && (ceiling - start) % increment !== 0) {
+          issues.push({
+            exerciseId: id,
+            message: 'progression.ceiling must be reachable from defaultRepsOrDuration in whole steps',
+          });
+        }
+      }
+    }
+
+    if (exercise.independentDefault && exercise.progressionOnly) {
+      issues.push({ exerciseId: id, message: 'independentDefault and progressionOnly are contradictory' });
     }
 
     const hasLink = Boolean(easierVariationId || harderVariationId);

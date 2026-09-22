@@ -3,6 +3,7 @@ import { Animated, Easing, StyleSheet, View } from 'react-native';
 import Svg, { Circle, G, Line, Text as SvgText } from 'react-native-svg';
 
 import { useCalisTheme } from '@/components/calis-theme';
+import { type AnimationType } from '@/constants/exercises';
 
 type ExerciseAnimationProps = {
   exerciseName: string;
@@ -268,6 +269,46 @@ function Step() {
       <EquipLine x1={236} y1={248} x2={336} y2={248} width={3} />
       <EquipLine x1={250} y1={248} x2={250} y2={FLOOR_Y} />
       <EquipLine x1={322} y1={248} x2={322} y2={FLOOR_Y} />
+    </>
+  );
+}
+
+function Seat() {
+  return (
+    <>
+      <EquipLine x1={118} y1={226} x2={178} y2={226} width={3} />
+      <EquipLine x1={126} y1={226} x2={126} y2={FLOOR_Y} />
+      <EquipLine x1={170} y1={226} x2={170} y2={FLOOR_Y} />
+    </>
+  );
+}
+
+function RearFootRest() {
+  return (
+    <>
+      <EquipLine x1={70} y1={232} x2={132} y2={232} width={3} />
+      <EquipLine x1={78} y1={232} x2={78} y2={FLOOR_Y} />
+      <EquipLine x1={124} y1={232} x2={124} y2={FLOOR_Y} />
+    </>
+  );
+}
+
+function RowFootRest() {
+  return (
+    <>
+      <EquipLine x1={342} y1={212} x2={392} y2={212} width={3} />
+      <EquipLine x1={348} y1={212} x2={348} y2={FLOOR_Y} />
+      <EquipLine x1={386} y1={212} x2={386} y2={FLOOR_Y} />
+    </>
+  );
+}
+
+function FootRest() {
+  return (
+    <>
+      <EquipLine x1={306} y1={212} x2={366} y2={212} width={3} />
+      <EquipLine x1={316} y1={212} x2={316} y2={FLOOR_Y} />
+      <EquipLine x1={356} y1={212} x2={356} y2={FLOOR_Y} />
     </>
   );
 }
@@ -584,6 +625,167 @@ function buildSidePlank(t: number): Pose {
   return { head, shoulder, elbow, wrist, hip, knee, ankle, toe, elbow2, wrist2 };
 }
 
+function rotatePoint(p: Point, pivot: Point, angle: number): Point {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  const dx = p.x - pivot.x;
+  const dy = p.y - pivot.y;
+  return { x: pivot.x + dx * c - dy * s, y: pivot.y + dx * s + dy * c };
+}
+
+function buildKneePlank(t: number): Pose {
+  const breath = Math.sin(t * Math.PI) * 0.5;
+  const knee = { x: 262, y: FLOOR_Y - 4 };
+  const ankle = { x: 318, y: FLOOR_Y - 26 };
+  const toe = { x: 334, y: FLOOR_Y - 32 };
+  const toward = { x: 118, y: 226 + breath };
+  const hip = extend(knee, toward, LEN.thigh);
+  const { shoulder, head } = alignedSpine(hip, toward);
+  const elbow = { x: shoulder.x + 2, y: FLOOR_Y };
+  const wrist = { x: shoulder.x - 30, y: FLOOR_Y };
+  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+}
+
+function buildShoulderTaps(t: number): Pose {
+  const tap = pulse(t, 0, 0.25, 0.5) + pulse(t, 0.5, 0.75, 1);
+  const { ankle, toe } = toesPlanted(312);
+  const hip = { x: 214, y: 216 };
+  const { shoulder, head } = alignedSpine(hip, { x: hip.x - 88, y: hip.y - 8 });
+  const wrist = { x: shoulder.x - 4, y: FLOOR_Y };
+  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxX');
+  const wrist2 = lerpPoint({ x: shoulder.x + 4, y: FLOOR_Y }, { x: shoulder.x + 8, y: shoulder.y + 12 }, tap);
+  const elbow2 = ik2(shoulder, wrist2, LEN.upper, LEN.lower, 'maxY');
+  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
+  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe, elbow2, wrist2 };
+}
+
+function buildLongLeverPlank(t: number): Pose {
+  const breath = Math.sin(t * Math.PI) * 0.5;
+  const { ankle, toe } = toesPlanted(326);
+  const hip = { x: 220, y: 244 + breath };
+  const { shoulder, head } = alignedSpine(hip, { x: 128, y: 240 + breath });
+  const elbow = { x: shoulder.x - 30, y: FLOOR_Y };
+  const wrist = { x: elbow.x - 34, y: FLOOR_Y };
+  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
+  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+}
+
+function buildExtendedDeadBug(t: number): Pose {
+  const hip = { x: 176, y: 278 };
+  const shoulder = { x: 112, y: 276 };
+  const head = polar(shoulder, -1.42, LEN.head);
+  const sideA = pulse(t, 0, 0.25, 0.5);
+  const sideB = pulse(t, 0.5, 0.75, 1);
+  const wristHome = { x: 118, y: 198 };
+  const wristReach = { x: 34, y: 270 };
+  const wrist = lerpPoint(wristHome, wristReach, sideA);
+  const wrist2 = lerpPoint(wristHome, wristReach, sideB);
+  const kneeHome = polar(hip, 0.55, LEN.thigh);
+  const kneeLong = polar(hip, 1.5, LEN.thigh);
+  const ankleHome = polar(kneeHome, 1.05, LEN.shin);
+  const ankleLong = polar(kneeLong, 1.5, LEN.shin);
+  const knee = lerpPoint(kneeHome, kneeLong, sideB);
+  const knee2 = lerpPoint(kneeHome, kneeLong, sideA);
+  const ankle = lerpPoint(ankleHome, ankleLong, sideB);
+  const ankle2 = lerpPoint(ankleHome, ankleLong, sideA);
+  return {
+    head,
+    shoulder,
+    hip,
+    elbow: ik2(shoulder, wrist, LEN.upper, LEN.lower, 'minX'),
+    wrist,
+    elbow2: ik2(shoulder, wrist2, LEN.upper, LEN.lower, 'minX'),
+    wrist2,
+    knee,
+    ankle,
+    toe: polar(ankle, lerp(1.2, 1.9, sideB), 16),
+    knee2,
+    ankle2,
+    toe2: polar(ankle2, lerp(1.2, 1.9, sideA), 16),
+  };
+}
+
+function buildTuckHollowHold(t: number): Pose {
+  const breath = Math.sin(t * Math.PI) * 0.6;
+  const hip = { x: 196, y: 286 };
+  const shoulder = { x: 146, y: 256 + breath };
+  const head = polar(shoulder, -0.95, LEN.head);
+  const knee = polar(hip, 0.3, LEN.thigh);
+  const ankle = polar(knee, 1.75, LEN.shin);
+  const wrist = { x: knee.x + 14, y: knee.y + 12 };
+  const elbow = lerpPoint(shoulder, wrist, LEN.upper / (LEN.upper + LEN.lower));
+  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe: polar(ankle, 1.2, 16) };
+}
+
+function hollowShape(breath: number): Pose {
+  const hip = { x: 204, y: 288 };
+  const shoulder = { x: 142, y: 274 + breath };
+  const head = polar(shoulder, -1.2, LEN.head);
+  const knee = polar(hip, 1.3, LEN.thigh);
+  const ankle = polar(knee, 1.3, LEN.shin);
+  const wrist = { x: shoulder.x - 82, y: shoulder.y - 26 };
+  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'minY');
+  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe: polar(ankle, 1.0, 16) };
+}
+
+function buildHollowHold(t: number): Pose {
+  return hollowShape(Math.sin(t * Math.PI) * 0.6);
+}
+
+function buildHollowRocks(t: number): Pose {
+  const pose = hollowShape(0);
+  const pivot = { x: 176, y: FLOOR_Y - 8 };
+  const angle = lerp(-0.16, 0.16, t);
+  const rotated = Object.fromEntries(
+    Object.entries(pose).map(([key, point]) => [key, rotatePoint(point as Point, pivot, angle)])
+  ) as Pose;
+  return rotated;
+}
+
+function buildKneeSidePlank(t: number): Pose {
+  const breath = Math.sin(t * Math.PI) * 0.45;
+  const elbow = { x: 114, y: FLOOR_Y };
+  const wrist = { x: 148, y: FLOOR_Y };
+  const shoulder = { x: 120, y: 246 + breath };
+  const knee = { x: 262, y: FLOOR_Y - 4 };
+  const hip = extend(shoulder, knee, LEN.torso + 8);
+  const ankle = { x: 300, y: FLOOR_Y - 48 };
+  const toe = { x: 314, y: FLOOR_Y - 58 };
+  const head = polar(shoulder, -0.58, LEN.head);
+  const wrist2 = polar(shoulder, 0.04, LEN.upper + LEN.lower - 10);
+  const elbow2 = ik2(shoulder, wrist2, LEN.upper, LEN.lower, 'minX');
+  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe, elbow2, wrist2 };
+}
+
+function buildSidePlankHipDip(t: number): Pose {
+  const elbow = { x: 114, y: FLOOR_Y };
+  const wrist = { x: 148, y: FLOOR_Y };
+  const shoulder = { x: 120, y: 246 };
+  const hip = lerpPoint({ x: 206, y: 247 }, { x: 200, y: 284 }, t);
+  const { ankle, toe } = toesPlanted(312);
+  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
+  const head = polar(shoulder, -0.58, LEN.head);
+  const wrist2 = { x: hip.x - 8, y: hip.y - 16 };
+  const elbow2 = ik2(shoulder, wrist2, LEN.upper, LEN.lower, 'minY');
+  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe, elbow2, wrist2 };
+}
+
+function buildStarPlank(t: number): Pose {
+  const breath = Math.sin(t * Math.PI) * 0.45;
+  const wrist = { x: 128, y: FLOOR_Y };
+  const shoulder = { x: 132, y: 216 + breath };
+  const elbow = lerpPoint(shoulder, wrist, LEN.upper / (LEN.upper + LEN.lower));
+  const hip = { x: 212, y: 236 + breath };
+  const { ankle, toe } = toesPlanted(316);
+  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
+  const head = polar(shoulder, -0.5, LEN.head);
+  const wrist2 = polar(shoulder, 0.08, LEN.upper + LEN.lower);
+  const elbow2 = lerpPoint(shoulder, wrist2, LEN.upper / (LEN.upper + LEN.lower));
+  const knee2 = polar(hip, 0.95, LEN.thigh);
+  const ankle2 = polar(knee2, 0.95, LEN.shin);
+  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe, elbow2, wrist2, knee2, ankle2, toe2: polar(ankle2, 1.9, 14) };
+}
+
 function buildBirdDog(t: number): Pose {
   const hip = { x: 210, y: 230 };
   const shoulder = { x: 138, y: 230 };
@@ -643,6 +845,26 @@ function buildRow(t: number): Pose {
   return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
 }
 
+function buildFeetElevatedRow(t: number): Pose {
+  const ankle = { x: 364, y: 203 };
+  const toe = { x: 384, y: 212 };
+  const wrist = { x: 156, y: 148 };
+  const tilt = lerp(0.16, -0.1, t);
+  const toward = { x: ankle.x - Math.cos(tilt) * 100, y: ankle.y + Math.sin(tilt) * 100 };
+  const hip = extend(ankle, toward, LEN.thigh + LEN.shin);
+  const { shoulder, head } = alignedSpine(hip, extend(ankle, toward, 400));
+  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
+  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxX');
+  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+}
+
+function buildArcherRow(t: number): Pose {
+  const pose = buildRow(t);
+  const wrist2 = { x: 100, y: 148 };
+  const elbow2 = lerpPoint(pose.shoulder, wrist2, LEN.upper / (LEN.upper + LEN.lower));
+  return { ...pose, elbow2, wrist2 };
+}
+
 function buildWallPushUp(t: number): Pose {
   const { ankle, toe } = foot(188);
   const lean = lerp(0.24, 0.58, t);
@@ -674,6 +896,43 @@ function buildKneePushUp(t: number): Pose {
   return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
 }
 
+function buildDiamondPushUp(t: number): Pose {
+  const { ankle, toe } = toesPlanted(312);
+  const hip = lerpPoint({ x: 214, y: 216 }, { x: 224, y: 246 }, t);
+  const { shoulder, head } = alignedSpine(hip, { x: hip.x - 88, y: hip.y - 8 });
+  const wrist = { x: 150, y: FLOOR_Y };
+  const wrist2 = { x: 160, y: FLOOR_Y };
+  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
+  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxX');
+  const elbow2 = ik2(shoulder, wrist2, LEN.upper, LEN.lower, 'maxX');
+  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe, elbow2, wrist2 };
+}
+
+function buildDeclinePushUp(t: number): Pose {
+  const ankle = { x: 334, y: 203 };
+  const toe = { x: 354, y: 212 };
+  const wrist = { x: 126, y: FLOOR_Y };
+  const tilt = lerp(0.06, 0.23, t);
+  const toward = { x: ankle.x - Math.cos(tilt) * 100, y: ankle.y + Math.sin(tilt) * 100 };
+  const hip = extend(ankle, toward, LEN.thigh + LEN.shin);
+  const { shoulder, head } = alignedSpine(hip, extend(ankle, toward, 400));
+  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
+  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxY');
+  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+}
+
+function buildArcherPushUp(t: number): Pose {
+  const { ankle, toe } = toesPlanted(312);
+  const hip = lerpPoint({ x: 216, y: 226 }, { x: 226, y: 252 }, t);
+  const { shoulder, head } = alignedSpine(hip, { x: hip.x - 88, y: hip.y - 6 });
+  const wrist = { x: 158, y: FLOOR_Y };
+  const wrist2 = { x: 96, y: FLOOR_Y };
+  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
+  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxX');
+  const elbow2 = lerpPoint(shoulder, wrist2, LEN.upper / (LEN.upper + LEN.lower));
+  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe, elbow2, wrist2 };
+}
+
 function buildSplitSquat(t: number): Pose {
   const front = foot(250);
   const back = foot(128);
@@ -700,6 +959,84 @@ function buildAssistedSplitSquat(t: number): Pose {
   const wrist = { x: 86, y: lerp(152, 170, t) };
   const elbow = ik2(pose.shoulder, wrist, LEN.upper, LEN.lower, 'minX');
   return { ...pose, elbow, wrist };
+}
+
+function buildBoxSquat(t: number): Pose {
+  return buildSquat(t);
+}
+
+function freeLegForward(hip: Point, t: number) {
+  const knee2 = polar(hip, lerp(Math.PI - 0.35, 1.5, t), LEN.thigh);
+  const ankle2 = polar(knee2, lerp(Math.PI - 0.3, 1.55, t), LEN.shin);
+  return { knee2, ankle2, toe2: polar(ankle2, lerp(1.6, 0.3, t), 14) };
+}
+
+function buildAssistedPistolSquat(t: number): Pose {
+  const { ankle, toe } = foot(200);
+  const knee = polar(ankle, lerp(0.04, 0.46, t), LEN.shin);
+  const hip = polar(knee, lerp(0.04, -1.34, t), LEN.thigh);
+  const { shoulder, head } = spine(hip, lerp(0.06, 0.42, t));
+  const wrist = { x: 86, y: lerp(150, 196, t) };
+  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'minX');
+  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe, ...freeLegForward(hip, t) };
+}
+
+function buildPistolSquat(t: number): Pose {
+  const { ankle, toe } = foot(200);
+  const knee = polar(ankle, lerp(0.04, 0.5, t), LEN.shin);
+  const hip = polar(knee, lerp(0.04, -1.42, t), LEN.thigh);
+  const { shoulder, head } = spine(hip, lerp(0.06, 0.5, t));
+  const arm = squatArms(shoulder, t);
+  return { head, shoulder, hip, knee, ankle, toe, ...arm, ...freeLegForward(hip, t) };
+}
+
+function buildBulgarianSplitSquat(t: number): Pose {
+  const front = foot(252);
+  const backAnkle = { x: 112, y: 224 };
+  const backToe = { x: 96, y: 232 };
+  const hip = lerpPoint({ x: 200, y: 170 }, { x: 196, y: 216 }, t);
+  const { shoulder, head } = spine(hip, lerp(0.08, 0.16, t));
+  const arm = hangingArm(shoulder);
+  return {
+    head,
+    shoulder,
+    hip,
+    ...arm,
+    knee: ik2(hip, front.ankle, LEN.thigh, LEN.shin, 'maxX'),
+    ankle: front.ankle,
+    toe: front.toe,
+    knee2: ik2(hip, backAnkle, LEN.thigh, LEN.shin, 'maxY'),
+    ankle2: backAnkle,
+    toe2: backToe,
+  };
+}
+
+function buildShrimpSquat(t: number): Pose {
+  const { ankle, toe } = foot(224);
+  const knee = polar(ankle, lerp(0.04, 0.56, t), LEN.shin);
+  const hip = polar(knee, lerp(0.04, -1.3, t), LEN.thigh);
+  const { shoulder, head } = spine(hip, lerp(0.1, 0.5, t));
+  const knee2 = extend(hip, { x: hip.x - lerp(8, 30, t), y: FLOOR_Y }, LEN.thigh);
+  const ankle2 = polar(knee2, -0.75, LEN.shin);
+  const wrist = { x: ankle2.x + 4, y: ankle2.y + 6 };
+  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxY');
+  const wrist2 = { x: shoulder.x + 78, y: shoulder.y + lerp(24, 6, t) };
+  const elbow2 = ik2(shoulder, wrist2, LEN.upper, LEN.lower, 'maxY');
+  return { head, shoulder, hip, knee, ankle, toe, elbow, wrist, elbow2, wrist2, knee2, ankle2, toe2: polar(ankle2, -2.3, 14) };
+}
+
+function buildSingleLegCalfRaise(t: number): Pose {
+  const lift = lerp(0, 18, t);
+  const ankle = { x: 200, y: FLOOR_Y - lift };
+  const toe = { x: 224, y: FLOOR_Y };
+  const knee = polar(ankle, 0.02, LEN.shin);
+  const hip = polar(knee, 0.02, LEN.thigh);
+  const { shoulder, head } = spine(hip, 0.04);
+  const knee2 = polar(hip, Math.PI - 0.12, LEN.thigh);
+  const ankle2 = polar(knee2, -1.35, LEN.shin);
+  const wrist = { x: 330, y: shoulder.y + 22 };
+  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxY');
+  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe, knee2, ankle2, toe2: polar(ankle2, -2.9, 12) };
 }
 
 function buildCalfRaise(t: number): Pose {
@@ -1082,6 +1419,23 @@ function AustralianRow() {
   );
 }
 
+function FeetElevatedAustralianRow() {
+  return (
+    <Stage build={buildFeetElevatedRow}>
+      <Bar />
+      <RowFootRest />
+    </Stage>
+  );
+}
+
+function ArcherAustralianRow() {
+  return (
+    <Stage build={buildArcherRow}>
+      <Bar />
+    </Stage>
+  );
+}
+
 function GluteBridge() {
   return <Stage build={buildBridge} />;
 }
@@ -1100,6 +1454,46 @@ function DeadBug() {
 
 function SidePlank() {
   return <Stage build={buildSidePlank} />;
+}
+
+function KneePlank() {
+  return <Stage build={buildKneePlank} />;
+}
+
+function ShoulderTaps() {
+  return <Stage build={buildShoulderTaps} />;
+}
+
+function LongLeverPlank() {
+  return <Stage build={buildLongLeverPlank} />;
+}
+
+function ExtendedDeadBug() {
+  return <Stage build={buildExtendedDeadBug} />;
+}
+
+function TuckHollowHold() {
+  return <Stage build={buildTuckHollowHold} />;
+}
+
+function HollowHold() {
+  return <Stage build={buildHollowHold} />;
+}
+
+function HollowRocks() {
+  return <Stage build={buildHollowRocks} />;
+}
+
+function KneeSidePlank() {
+  return <Stage build={buildKneeSidePlank} />;
+}
+
+function SidePlankHipDip() {
+  return <Stage build={buildSidePlankHipDip} />;
+}
+
+function StarPlank() {
+  return <Stage build={buildStarPlank} />;
 }
 
 function BirdDog() {
@@ -1130,6 +1524,22 @@ function KneePushUp() {
   return <Stage build={buildKneePushUp} />;
 }
 
+function DiamondPushUp() {
+  return <Stage build={buildDiamondPushUp} />;
+}
+
+function DeclinePushUp() {
+  return (
+    <Stage build={buildDeclinePushUp}>
+      <FootRest />
+    </Stage>
+  );
+}
+
+function ArcherPushUp() {
+  return <Stage build={buildArcherPushUp} />;
+}
+
 function SplitSquat() {
   return <Stage build={buildSplitSquat} />;
 }
@@ -1144,6 +1554,46 @@ function AssistedSplitSquat() {
 
 function CalfRaise() {
   return <Stage build={buildCalfRaise} />;
+}
+
+function BoxSquat() {
+  return (
+    <Stage build={buildBoxSquat}>
+      <Seat />
+    </Stage>
+  );
+}
+
+function AssistedPistolSquat() {
+  return (
+    <Stage build={buildAssistedPistolSquat}>
+      <Support />
+    </Stage>
+  );
+}
+
+function PistolSquat() {
+  return <Stage build={buildPistolSquat} />;
+}
+
+function BulgarianSplitSquat() {
+  return (
+    <Stage build={buildBulgarianSplitSquat}>
+      <RearFootRest />
+    </Stage>
+  );
+}
+
+function ShrimpSquat() {
+  return <Stage build={buildShrimpSquat} />;
+}
+
+function SingleLegCalfRaise() {
+  return (
+    <Stage build={buildSingleLegCalfRaise}>
+      <Wall />
+    </Stage>
+  );
 }
 
 function GoodMorning() {
@@ -1215,6 +1665,12 @@ const ANIMATIONS: Record<string, () => JSX.Element> = {
   'wall push-up': WallPushUp,
   'push-ups': FloorPushUp,
   'push-up': FloorPushUp,
+  'diamond push-ups': DiamondPushUp,
+  'diamond push-up': DiamondPushUp,
+  'decline push-ups': DeclinePushUp,
+  'decline push-up': DeclinePushUp,
+  'archer push-ups': ArcherPushUp,
+  'archer push-up': ArcherPushUp,
   'bodyweight squats': BodyweightSquat,
   'bodyweight squat': BodyweightSquat,
   'reverse lunges': ReverseLunge,
@@ -1224,6 +1680,12 @@ const ANIMATIONS: Record<string, () => JSX.Element> = {
   'assisted split squats': AssistedSplitSquat,
   'assisted split squat': AssistedSplitSquat,
   'calf raises': CalfRaise,
+  'box squats': BoxSquat,
+  'assisted pistol squats': AssistedPistolSquat,
+  'pistol squats': PistolSquat,
+  'bulgarian split squats': BulgarianSplitSquat,
+  'shrimp squats': ShrimpSquat,
+  'single-leg calf raises': SingleLegCalfRaise,
   'calf raise': CalfRaise,
   'glute bridges': GluteBridge,
   'glute bridge': GluteBridge,
@@ -1232,6 +1694,8 @@ const ANIMATIONS: Record<string, () => JSX.Element> = {
   'good mornings': GoodMorning,
   'good morning': GoodMorning,
   'australian rows': AustralianRow,
+  'feet-elevated australian rows': FeetElevatedAustralianRow,
+  'archer australian rows': ArcherAustralianRow,
   'australian row': AustralianRow,
   'assisted australian rows': AssistedAustralianRow,
   'assisted australian row': AssistedAustralianRow,
@@ -1240,6 +1704,17 @@ const ANIMATIONS: Record<string, () => JSX.Element> = {
   'dead bug': DeadBug,
   'bird dog': BirdDog,
   'side plank': SidePlank,
+  'knee plank': KneePlank,
+  'plank shoulder taps': ShoulderTaps,
+  'shoulder taps': ShoulderTaps,
+  'long-lever plank': LongLeverPlank,
+  'extended dead bug': ExtendedDeadBug,
+  'tuck hollow hold': TuckHollowHold,
+  'hollow hold': HollowHold,
+  'hollow rocks': HollowRocks,
+  'knee side plank': KneeSidePlank,
+  'side plank hip dips': SidePlankHipDip,
+  'star plank': StarPlank,
   crunches: Crunch,
   crunch: Crunch,
   'reverse crunches': ReverseCrunch,
@@ -1262,20 +1737,41 @@ const ANIMATIONS_BY_TYPE: Record<string, () => JSX.Element> = {
   kneePushUp: KneePushUp,
   wallPushUp: WallPushUp,
   pushUp: FloorPushUp,
+  diamondPushUp: DiamondPushUp,
+  declinePushUp: DeclinePushUp,
+  archerPushUp: ArcherPushUp,
   squat: BodyweightSquat,
   reverseLunge: ReverseLunge,
   splitSquat: SplitSquat,
   assistedSplitSquat: AssistedSplitSquat,
   calfRaise: CalfRaise,
+  boxSquat: BoxSquat,
+  assistedPistolSquat: AssistedPistolSquat,
+  pistolSquat: PistolSquat,
+  bulgarianSplitSquat: BulgarianSplitSquat,
+  shrimpSquat: ShrimpSquat,
+  singleLegCalfRaise: SingleLegCalfRaise,
   gluteBridge: GluteBridge,
   singleLegGluteBridge: SingleLegGluteBridge,
   goodMorning: GoodMorning,
   australianRow: AustralianRow,
   assistedAustralianRow: AssistedAustralianRow,
+  feetElevatedAustralianRow: FeetElevatedAustralianRow,
+  archerAustralianRow: ArcherAustralianRow,
   plank: Plank,
   deadBug: DeadBug,
   birdDog: BirdDog,
   sidePlank: SidePlank,
+  kneePlank: KneePlank,
+  shoulderTaps: ShoulderTaps,
+  longLeverPlank: LongLeverPlank,
+  extendedDeadBug: ExtendedDeadBug,
+  tuckHollowHold: TuckHollowHold,
+  hollowHold: HollowHold,
+  hollowRocks: HollowRocks,
+  kneeSidePlank: KneeSidePlank,
+  sidePlankHipDip: SidePlankHipDip,
+  starPlank: StarPlank,
   crunch: Crunch,
   reverseCrunch: ReverseCrunch,
   catCow: CatCow,
@@ -1288,7 +1784,7 @@ const ANIMATIONS_BY_TYPE: Record<string, () => JSX.Element> = {
   jumpingJacks: JumpingJacks,
   stepUp: StepUp,
   highKnees: HighKnees,
-};
+} satisfies Record<AnimationType, () => JSX.Element>;
 
 function resolveAnimation(exerciseName: string, animationType?: string) {
   if (animationType && ANIMATIONS_BY_TYPE[animationType]) {
