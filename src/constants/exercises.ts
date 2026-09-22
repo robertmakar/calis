@@ -54,6 +54,12 @@ export type AnimationType =
   | 'assistedAustralianRow'
   | 'feetElevatedAustralianRow'
   | 'archerAustralianRow'
+  | 'deadHang'
+  | 'scapularPullUp'
+  | 'negativePullUp'
+  | 'chinUp'
+  | 'pullUp'
+  | 'archerPullUp'
   | 'plank'
   | 'deadBug'
   | 'birdDog'
@@ -90,7 +96,8 @@ export type ProgressionGroup =
   | 'hollow'
   | 'side-plank'
   | 'squat'
-  | 'calf-raise';
+  | 'calf-raise'
+  | 'pull-up';
 
 /**
  * Optional per-exercise ladder override. When absent, the ladder is
@@ -592,6 +599,121 @@ export const EXERCISES: Exercise[] = [
     progressionGroup: 'australian-row',
     progressionLevel: 1,
     harderVariationId: 'australian-rows',
+  },
+  {
+    id: 'dead-hang',
+    name: 'Dead Hang',
+    category: 'pull',
+    difficulty: 'beginner',
+    equipment: 'pull-up-bar',
+    primaryMuscles: ['back', 'shoulders'],
+    type: 'hold',
+    defaultSets: 3,
+    defaultRepsOrDuration: 15,
+    animationType: 'deadHang',
+    cue: 'Hang from the bar with straight arms. Keep your shoulders active and breathe steadily.',
+    instructions: 'Grip the bar slightly wider than your shoulders and hang with straight arms. Pull your shoulders gently away from your ears and hold.',
+    progressionGroup: 'pull-up',
+    progressionLevel: 1,
+    harderVariationId: 'scapular-pull-ups',
+  },
+  {
+    id: 'scapular-pull-ups',
+    name: 'Scapular Pull-ups',
+    category: 'pull',
+    difficulty: 'beginner',
+    equipment: 'pull-up-bar',
+    primaryMuscles: ['back', 'shoulders'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 6,
+    animationType: 'scapularPullUp',
+    cue: 'Arms stay straight. Pull your shoulder blades down to lift your body slightly, then lower.',
+    instructions: 'Hang from the bar with straight arms. Without bending your elbows, draw your shoulder blades down and back so your body rises a little, then lower with control.',
+    progressionGroup: 'pull-up',
+    progressionLevel: 2,
+    easierVariationId: 'dead-hang',
+    harderVariationId: 'negative-pull-ups',
+    progressionOnly: true,
+  },
+  {
+    id: 'negative-pull-ups',
+    name: 'Negative Pull-ups',
+    category: 'pull',
+    difficulty: 'intermediate',
+    equipment: 'pull-up-bar',
+    primaryMuscles: ['back', 'biceps'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 3,
+    animationType: 'negativePullUp',
+    cue: 'Start with your chin over the bar, then lower slowly for 3–5 seconds until your arms are straight.',
+    instructions: 'Step or jump up so your chin is over the bar. Lower yourself slowly and under control, taking 3–5 seconds, until your arms are straight. Step back up and repeat.',
+    progressionGroup: 'pull-up',
+    progressionLevel: 3,
+    easierVariationId: 'scapular-pull-ups',
+    harderVariationId: 'chin-ups',
+    progression: { ceiling: 6 },
+    progressionOnly: true,
+  },
+  {
+    id: 'chin-ups',
+    name: 'Chin-ups',
+    category: 'pull',
+    difficulty: 'intermediate',
+    equipment: 'pull-up-bar',
+    primaryMuscles: ['back', 'biceps'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 3,
+    animationType: 'chinUp',
+    cue: 'Palms facing you. Pull until your chin clears the bar, then lower with control.',
+    instructions: 'Hang with your palms facing you, hands about shoulder-width apart. Pull your chest toward the bar until your chin clears it, then lower to straight arms.',
+    progressionGroup: 'pull-up',
+    progressionLevel: 4,
+    easierVariationId: 'negative-pull-ups',
+    harderVariationId: 'pull-ups',
+    progression: { ceiling: 8 },
+    progressionOnly: true,
+  },
+  {
+    id: 'pull-ups',
+    name: 'Pull-ups',
+    category: 'pull',
+    difficulty: 'intermediate',
+    equipment: 'pull-up-bar',
+    primaryMuscles: ['back', 'biceps'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 3,
+    animationType: 'pullUp',
+    cue: 'Palms facing away. Pull your elbows down until your chin clears the bar, then lower with control.',
+    instructions: 'Hang with your palms facing away, hands slightly wider than your shoulders. Drive your elbows down to pull your chin over the bar, then lower to straight arms.',
+    progressionGroup: 'pull-up',
+    progressionLevel: 5,
+    easierVariationId: 'chin-ups',
+    harderVariationId: 'archer-pull-ups',
+    progression: { ceiling: 8 },
+    progressionOnly: true,
+  },
+  {
+    id: 'archer-pull-ups',
+    name: 'Archer Pull-ups',
+    category: 'pull',
+    difficulty: 'advanced',
+    equipment: 'pull-up-bar',
+    primaryMuscles: ['back', 'biceps', 'core'],
+    type: 'reps',
+    defaultSets: 3,
+    defaultRepsOrDuration: 2,
+    animationType: 'archerPullUp',
+    cue: 'Reps are per side. Hands wide — pull toward one hand while the other arm stays straight.',
+    instructions: 'Reps are per side. Take a wide grip. Pull your chin toward one hand while keeping the other arm straight along the bar, lower with control, then switch sides.',
+    progressionGroup: 'pull-up',
+    progressionLevel: 6,
+    easierVariationId: 'pull-ups',
+    progression: { ceiling: 5 },
+    progressionOnly: true,
   },
   {
     id: 'knee-plank',
@@ -1276,6 +1398,66 @@ const EXERCISE_GUIDES: Record<string, ExerciseGuide> = {
       'Lower with control, then switch sides.',
     ],
     formTips: ['Reps are per side.', 'Keep your hips level.', 'Do not twist your torso.'],
+  },
+  'dead-hang': {
+    description: 'A simple hang that builds grip and shoulder strength for pulling.',
+    howTo: [
+      'Grip the bar slightly wider than your shoulders.',
+      'Hang with straight arms.',
+      'Pull your shoulders gently away from your ears.',
+      'Breathe steadily and hold.',
+    ],
+    formTips: ['Keep your shoulders active, not shrugged.', 'Keep your body still.', 'Use a step to get on and off the bar.'],
+  },
+  'scapular-pull-ups': {
+    description: 'A small shoulder-blade movement that teaches the first part of every pull-up.',
+    howTo: [
+      'Hang from the bar with straight arms.',
+      'Draw your shoulder blades down and back.',
+      'Let your body rise a little without bending your elbows.',
+      'Lower with control.',
+    ],
+    formTips: ['Keep your elbows straight.', 'Move slowly.', 'Think of pulling your shoulders away from your ears.'],
+  },
+  'negative-pull-ups': {
+    description: 'A slow lowering from the top of a pull-up that builds strength for full reps.',
+    howTo: [
+      'Step or jump up so your chin is over the bar.',
+      'Hold the top briefly.',
+      'Lower slowly for 3–5 seconds.',
+      'Stop at straight arms, then step back up.',
+    ],
+    formTips: ['Take 3–5 seconds on the way down.', 'Do not drop at the bottom.', 'Use a sturdy step to reach the top.'],
+  },
+  'chin-ups': {
+    description: 'A vertical pull with palms facing you, which lets your biceps help more.',
+    howTo: [
+      'Hang with palms facing you, hands shoulder-width apart.',
+      'Pull your chest toward the bar.',
+      'Clear the bar with your chin.',
+      'Lower to straight arms with control.',
+    ],
+    formTips: ['Avoid swinging.', 'Keep your shoulders down.', 'Lower all the way each rep.'],
+  },
+  'pull-ups': {
+    description: 'A vertical pull with palms facing away, the classic upper-body strength test.',
+    howTo: [
+      'Hang with palms facing away, hands slightly wider than your shoulders.',
+      'Drive your elbows down toward your ribs.',
+      'Pull until your chin clears the bar.',
+      'Lower to straight arms with control.',
+    ],
+    formTips: ['Avoid kicking or swinging.', 'Keep your shoulders down.', 'Lower all the way each rep.'],
+  },
+  'archer-pull-ups': {
+    description: 'An advanced one-sided pull-up that builds toward single-arm strength.',
+    howTo: [
+      'Take a wide grip on the bar.',
+      'Pull your chin toward one hand.',
+      'Keep the other arm straight along the bar.',
+      'Lower with control, then switch sides.',
+    ],
+    formTips: ['Reps are per side.', 'Keep your body still.', 'Only go as high as you can control.'],
   },
   plank: {
     description: 'A still hold that builds core strength and teaches you to keep a straight body line.',

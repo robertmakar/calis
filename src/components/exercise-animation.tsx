@@ -293,6 +293,25 @@ function RearFootRest() {
   );
 }
 
+function HighBar() {
+  const { figure } = useAnimationInk();
+  return (
+    <>
+      <EquipLine x1={82} y1={HIGH_BAR_Y} x2={82} y2={FLOOR_Y} />
+      <EquipLine x1={318} y1={HIGH_BAR_Y} x2={318} y2={FLOOR_Y} />
+      <Line
+        x1={70}
+        y1={HIGH_BAR_Y}
+        x2={330}
+        y2={HIGH_BAR_Y}
+        stroke={figure}
+        strokeWidth={4}
+        strokeLinecap="round"
+      />
+    </>
+  );
+}
+
 function RowFootRest() {
   return (
     <>
@@ -863,6 +882,61 @@ function buildArcherRow(t: number): Pose {
   const wrist2 = { x: 100, y: 148 };
   const elbow2 = lerpPoint(pose.shoulder, wrist2, LEN.upper / (LEN.upper + LEN.lower));
   return { ...pose, elbow2, wrist2 };
+}
+
+const HIGH_BAR_Y = 24;
+
+function hangingBody(shoulder: Point, lean: number, kneeBend: number) {
+  const head = polar(shoulder, lean * 0.6, LEN.head);
+  const hip = polar(shoulder, Math.PI + lean, LEN.torso);
+  const knee = polar(hip, Math.PI - 0.12 + lean, LEN.thigh);
+  const ankle = polar(knee, Math.PI + kneeBend, LEN.shin);
+  const toe = polar(ankle, Math.PI / 2 + kneeBend * 0.4, 14);
+  return { head, hip, knee, ankle, toe };
+}
+
+function straightArm(shoulder: Point, wrist: Point) {
+  return lerpPoint(shoulder, wrist, LEN.upper / (LEN.upper + LEN.lower));
+}
+
+function buildDeadHang(t: number): Pose {
+  const sway = Math.sin(t * Math.PI) * 1.5;
+  const wrist = { x: 200, y: HIGH_BAR_Y };
+  const shoulder = { x: 200 + sway, y: HIGH_BAR_Y + LEN.upper + LEN.lower - 1 };
+  return { shoulder, elbow: straightArm(shoulder, wrist), wrist, ...hangingBody(shoulder, 0, 0.9) };
+}
+
+function buildScapularPullUp(t: number): Pose {
+  const wrist = { x: 200, y: HIGH_BAR_Y };
+  const shoulder = { x: lerp(200, 197, t), y: HIGH_BAR_Y + lerp(LEN.upper + LEN.lower - 1, LEN.upper + LEN.lower - 9, t) };
+  return { shoulder, elbow: straightArm(shoulder, wrist), wrist, ...hangingBody(shoulder, lerp(0, -0.12, t), 0.9) };
+}
+
+function pullUpPose(p: number, elbowSide: 'maxX' | 'minX', lean: number, kneeBend = 0.9): Pose {
+  const wrist = { x: 200, y: HIGH_BAR_Y };
+  const shoulder = { x: 200 - lean * 30 * p, y: HIGH_BAR_Y + lerp(LEN.upper + LEN.lower - 1, 40, p) };
+  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, elbowSide);
+  return { shoulder, elbow, wrist, ...hangingBody(shoulder, -lean * p, kneeBend) };
+}
+
+function buildChinUp(t: number): Pose {
+  return pullUpPose(t, 'maxX', 0.04);
+}
+
+function buildPullUp(t: number): Pose {
+  return pullUpPose(t, 'minX', 0.2);
+}
+
+function buildNegativePullUp(t: number): Pose {
+  return pullUpPose(1 - t, 'minX', 0.2, lerp(1.5, 0.9, t));
+}
+
+function buildArcherPullUp(t: number): Pose {
+  const wrist = { x: 200, y: HIGH_BAR_Y };
+  const wrist2 = { x: 110, y: HIGH_BAR_Y };
+  const shoulder = { x: lerp(186, 196, t), y: HIGH_BAR_Y + lerp(LEN.upper + LEN.lower - 6, 40, t) };
+  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'minX');
+  return { shoulder, elbow, wrist, elbow2: straightArm(shoulder, wrist2), wrist2, ...hangingBody(shoulder, -0.1 * t, 0.9) };
 }
 
 function buildWallPushUp(t: number): Pose {
@@ -1436,6 +1510,54 @@ function ArcherAustralianRow() {
   );
 }
 
+function DeadHang() {
+  return (
+    <Stage build={buildDeadHang}>
+      <HighBar />
+    </Stage>
+  );
+}
+
+function ScapularPullUp() {
+  return (
+    <Stage build={buildScapularPullUp}>
+      <HighBar />
+    </Stage>
+  );
+}
+
+function NegativePullUp() {
+  return (
+    <Stage build={buildNegativePullUp}>
+      <HighBar />
+    </Stage>
+  );
+}
+
+function ChinUp() {
+  return (
+    <Stage build={buildChinUp}>
+      <HighBar />
+    </Stage>
+  );
+}
+
+function PullUp() {
+  return (
+    <Stage build={buildPullUp}>
+      <HighBar />
+    </Stage>
+  );
+}
+
+function ArcherPullUp() {
+  return (
+    <Stage build={buildArcherPullUp}>
+      <HighBar />
+    </Stage>
+  );
+}
+
 function GluteBridge() {
   return <Stage build={buildBridge} />;
 }
@@ -1696,6 +1818,12 @@ const ANIMATIONS: Record<string, () => JSX.Element> = {
   'australian rows': AustralianRow,
   'feet-elevated australian rows': FeetElevatedAustralianRow,
   'archer australian rows': ArcherAustralianRow,
+  'dead hang': DeadHang,
+  'scapular pull-ups': ScapularPullUp,
+  'negative pull-ups': NegativePullUp,
+  'chin-ups': ChinUp,
+  'pull-ups': PullUp,
+  'archer pull-ups': ArcherPullUp,
   'australian row': AustralianRow,
   'assisted australian rows': AssistedAustralianRow,
   'assisted australian row': AssistedAustralianRow,
@@ -1758,6 +1886,12 @@ const ANIMATIONS_BY_TYPE: Record<string, () => JSX.Element> = {
   assistedAustralianRow: AssistedAustralianRow,
   feetElevatedAustralianRow: FeetElevatedAustralianRow,
   archerAustralianRow: ArcherAustralianRow,
+  deadHang: DeadHang,
+  scapularPullUp: ScapularPullUp,
+  negativePullUp: NegativePullUp,
+  chinUp: ChinUp,
+  pullUp: PullUp,
+  archerPullUp: ArcherPullUp,
   plank: Plank,
   deadBug: DeadBug,
   birdDog: BirdDog,
