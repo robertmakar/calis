@@ -5,7 +5,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CalisStatusBar, useCalisTheme } from '@/components/calis-theme';
 
-import { ExerciseAnimation } from '@/components/exercise-animation';
+import {
+  ExerciseAnimation,
+  POSE_BUILDERS_BY_TYPE,
+  POSE_CONTACTS_BY_TYPE,
+} from '@/components/exercise-animation';
+import {
+  diagnosePoseBuilder,
+  summarizeDiagnostics,
+} from '@/components/exercise-animation-validation';
 import { EXERCISES } from '@/constants/exercises';
 import { Calis } from '@/constants/theme';
 
@@ -15,6 +23,30 @@ export default function DevAnimationGalleryScreen() {
   const exercises = useMemo(() => EXERCISES, []);
   const [index, setIndex] = useState(0);
   const { colors } = useCalisTheme();
+  const animationType = exercises[index]?.animationType;
+  const poseIssues = useMemo(
+    () =>
+      __DEV__ && animationType
+        ? summarizeDiagnostics(
+            diagnosePoseBuilder(POSE_BUILDERS_BY_TYPE[animationType], {
+              contacts: POSE_CONTACTS_BY_TYPE[animationType],
+            })
+          )
+        : [],
+    [animationType]
+  );
+  const flaggedTypes = useMemo(
+    () =>
+      __DEV__
+        ? (Object.keys(POSE_BUILDERS_BY_TYPE) as (keyof typeof POSE_BUILDERS_BY_TYPE)[]).filter(
+            (type) =>
+              diagnosePoseBuilder(POSE_BUILDERS_BY_TYPE[type], {
+                contacts: POSE_CONTACTS_BY_TYPE[type],
+              }).issueCount > 0
+          ).length
+        : 0,
+    []
+  );
 
   if (!__DEV__) {
     return <Redirect href="/" />;
@@ -64,6 +96,21 @@ export default function DevAnimationGalleryScreen() {
             animationType={exercise.animationType}
             maxHeight={240}
           />
+        </View>
+
+        <Text style={[styles.listLabel, { color: colors.secondary }]}>
+          POSE CHECK · {flaggedTypes} / {Object.keys(POSE_BUILDERS_BY_TYPE).length} TYPES FLAGGED
+        </Text>
+        <View style={styles.poseCheck}>
+          {poseIssues.length === 0 ? (
+            <Text style={[styles.poseIssue, { color: colors.secondary }]}>No pose issues.</Text>
+          ) : (
+            poseIssues.map((line) => (
+              <Text key={line} style={[styles.poseIssue, { color: colors.primary }]}>
+                {line}
+              </Text>
+            ))
+          )}
         </View>
 
         <View style={styles.navRow}>
@@ -166,6 +213,14 @@ const styles = StyleSheet.create({
   animation: {
     marginTop: 20,
     marginBottom: 20,
+  },
+  poseCheck: {
+    marginBottom: 24,
+    gap: 4,
+  },
+  poseIssue: {
+    fontSize: 13,
+    fontVariant: ['tabular-nums'],
   },
   navRow: {
     flexDirection: 'row',

@@ -3,33 +3,31 @@ import { Animated, Easing, StyleSheet, View } from 'react-native';
 import Svg, { Circle, G, Line, Text as SvgText } from 'react-native-svg';
 
 import { useCalisTheme } from '@/components/calis-theme';
+import {
+  angleFromVertical,
+  armChain,
+  extend,
+  FLOOR_Y,
+  legChain,
+  LEN,
+  lerp,
+  lerpPoint,
+  lerpAngle,
+  limb,
+  polar,
+  swingJoint,
+  contact,
+  type Contact,
+  type Point,
+  type Pose,
+  type PoseBuilder,
+} from '@/components/exercise-animation-geometry';
 import { type AnimationType } from '@/constants/exercises';
 
 type ExerciseAnimationProps = {
   exerciseName: string;
-  animationType?: string;
+  animationType: AnimationType;
   maxHeight?: number;
-};
-
-type Point = {
-  x: number;
-  y: number;
-};
-
-type Pose = {
-  head: Point;
-  shoulder: Point;
-  elbow: Point;
-  wrist: Point;
-  hip: Point;
-  knee: Point;
-  ankle: Point;
-  toe: Point;
-  elbow2?: Point;
-  wrist2?: Point;
-  knee2?: Point;
-  ankle2?: Point;
-  toe2?: Point;
 };
 
 type Prefer = 'maxX' | 'minX' | 'maxY' | 'minY';
@@ -39,7 +37,6 @@ const DEBUG_POSE: 'animate' | 'start' | 'mid' | 'end' | 'all' = 'animate';
 
 const VIEW_W = 400;
 const VIEW_H = 340;
-const FLOOR_Y = 300;
 /** One-way duration for a single start→end pose interpolation (exercise animations). */
 const POSE_CYCLE_MS = 2000;
 
@@ -60,23 +57,6 @@ const FOOT_W = 9;
 const NECK_W = 7;
 const EQUIP_W = 2.5;
 const FLOOR_W = 1.5;
-
-const LEN = {
-  torso: 64,
-  thigh: 66,
-  shin: 64,
-  upper: 44,
-  lower: 42,
-  head: 24,
-};
-
-function lerp(a: number, b: number, t: number) {
-  return a + (b - a) * t;
-}
-
-function lerpPoint(a: Point, b: Point, t: number): Point {
-  return { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t) };
-}
 
 function ik2(origin: Point, target: Point, l1: number, l2: number, prefer: Prefer): Point {
   const dx = target.x - origin.x;
@@ -104,23 +84,6 @@ function ik2(origin: Point, target: Point, l1: number, l2: number, prefer: Prefe
     case 'minY':
       return a.y < b.y ? a : b;
   }
-}
-
-function polar(origin: Point, fromVertical: number, length: number): Point {
-  return {
-    x: origin.x + Math.sin(fromVertical) * length,
-    y: origin.y - Math.cos(fromVertical) * length,
-  };
-}
-
-function extend(from: Point, toward: Point, length: number): Point {
-  const dx = toward.x - from.x;
-  const dy = toward.y - from.y;
-  const d = Math.max(Math.hypot(dx, dy), 0.0001);
-  return {
-    x: from.x + (dx / d) * length,
-    y: from.y + (dy / d) * length,
-  };
 }
 
 function spine(hip: Point, lean: number) {
@@ -260,7 +223,7 @@ function Wall() {
 }
 
 function Support() {
-  return <EquipLine x1={82} y1={96} x2={82} y2={FLOOR_Y} width={3} />;
+  return <EquipLine x1={SUPPORT_X} y1={96} x2={SUPPORT_X} y2={FLOOR_Y} width={3} />;
 }
 
 function Step() {
@@ -543,10 +506,25 @@ function buildSquat(t: number): Pose {
   return { head, shoulder, hip, knee, ankle, toe, ...arm };
 }
 
+// ---------------------------------------------------------------------------------------------
+// Supine / core family. Lying figures keep canonical arms: resting on the mat alongside the body,
+// or straight arms that swing or reach as one rigid chain (never interpolated joint positions).
+// ---------------------------------------------------------------------------------------------
+
+/** Straight arm pointing at `angle` from the shoulder (canonical upper arm + forearm). */
+function straightArmAt(shoulder: Point, angle: number) {
+  return armChain(shoulder, angle, angle);
+}
+
+/** Arm lying on the mat alongside the body toward the feet, hand resting on the mat. */
+function armAlongMat(shoulder: Point) {
+  const drop = Math.asin(Math.min(1, Math.max(0, (MAT_Y - shoulder.y) / (LEN.upper + LEN.lower))));
+  return straightArmAt(shoulder, Math.PI / 2 + drop);
+}
+
 function buildBridge(t: number): Pose {
   const shoulder = { x: 108, y: 280 };
   const { ankle, toe } = foot(250);
-  const wrist = { x: 92, y: FLOOR_Y };
   const torsoAngle = lerp(0.16, -0.86, t);
   const hip = {
     x: shoulder.x + Math.cos(torsoAngle) * LEN.torso,
@@ -554,56 +532,132 @@ function buildBridge(t: number): Pose {
   };
   const head = polar(shoulder, -1.48 + torsoAngle * 0.08, LEN.head);
   const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxY');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+  return { head, shoulder, ...armAlongMat(shoulder), hip, knee, ankle, toe };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Plank / push-up family. One rigid body line (ankle → knee → hip → shoulder → head, canonical
+// LEN segments) pivots on planted toes or knees; hands stay planted and the arm bends between
+// them with a fixed elbow side. `facing` is the direction the head points along x.
+// ---------------------------------------------------------------------------------------------
+
+type Facing = 1 | -1;
+
+/** Length of the foot from ankle to the planted toes in plank positions. */
+const PLANK_FOOT = 20;
+/** Knees, elbows and forearms resting on the mat sit this far above the floor line. */
+const MAT_Y = FLOOR_Y - 4;
+
+/** Angle-from-vertical of the body line (feet → head) tilted `tilt` rad above horizontal. */
+function bodyAngle(tilt: number, facing: Facing) {
+  return facing * (Math.PI / 2 - tilt);
+}
+
+/** Rigid plank line from toes planted at `toe`; the foot stays perpendicular to the shin. */
+function plankFromToes(toe: Point, tilt: number, facing: Facing) {
+  const angle = bodyAngle(tilt, facing);
+  const ankle = polar(toe, angle - facing * (Math.PI / 2), PLANK_FOOT);
+  const knee = polar(ankle, angle, LEN.shin);
+  const hip = polar(knee, angle, LEN.thigh);
+  const shoulder = polar(hip, angle, LEN.torso);
+  const head = polar(shoulder, angle, LEN.head);
+  return { toe, ankle, knee, hip, shoulder, head };
+}
+
+/** Rigid line from a knee resting on the mat up through the hip, shoulder and head. */
+function plankFromKnee(knee: Point, tilt: number, facing: Facing) {
+  const angle = bodyAngle(tilt, facing);
+  const hip = polar(knee, angle, LEN.thigh);
+  const shoulder = polar(hip, angle, LEN.torso);
+  const head = polar(shoulder, angle, LEN.head);
+  return { knee, hip, shoulder, head };
+}
+
+/** Shins resting behind a kneeling knee, feet lifted off the mat. */
+function liftedShin(knee: Point, facing: Facing) {
+  const ankle = polar(knee, -facing * 1.15, LEN.shin);
+  return { ankle, toe: polar(ankle, -facing * 1.75, 16) };
+}
+
+/** Arm from the shoulder to a planted hand; the elbow always bends toward the feet. */
+function plantedArm(shoulder: Point, hand: Point, facing: Facing) {
+  const { joint, end } = limb(shoulder, hand, LEN.upper, LEN.lower, facing);
+  return { elbow: joint, wrist: end };
+}
+
+/** Forearm on the mat: elbow at the end of the upper arm, forearm reaching toward the head. */
+function forearmOnMat(shoulder: Point, upperAngle: number, facing: Facing) {
+  const elbow = polar(shoulder, upperAngle, LEN.upper);
+  return { elbow, wrist: polar(elbow, facing * (Math.PI / 2), LEN.lower) };
+}
+
+/**
+ * A straight arm reaching sideways (archer push-up). Seen from the side it is foreshortened, so
+ * its projected length is shorter than LEN.upper + LEN.lower; it is never longer.
+ */
+function lateralStraightArm(shoulder: Point, hand: Point) {
+  return { elbow2: lerpPoint(shoulder, hand, LEN.upper / (LEN.upper + LEN.lower)), wrist2: hand };
+}
+
+const deg = Math.PI / 180;
+
+/** High-plank push-up line shared by push-ups, diamond, archer, shoulder taps and climbers. */
+const PUSH_UP_TOE = { x: 318, y: FLOOR_Y };
+const PUSH_UP_HAND = { x: 138, y: FLOOR_Y };
+/** Planted points of the other variants (also declared as contacts for dev validation). */
+const DIAMOND_HANDS = [{ x: 152, y: FLOOR_Y }, { x: 157, y: FLOOR_Y }] as const;
+const ARCHER_SIDE_HAND = { x: 120, y: FLOOR_Y };
+const INCLINE_TOE = { x: 70, y: FLOOR_Y };
+const INCLINE_HAND = { x: 268, y: 197 };
+const DECLINE_TOE = { x: 350, y: 212 };
+const DECLINE_HAND = { x: 150, y: FLOOR_Y };
+const KNEE_PUSH_UP_KNEE = { x: 252, y: MAT_Y };
+const KNEE_PUSH_UP_HAND = { x: 148, y: FLOOR_Y };
+const WALL_HAND = { x: 332, y: 120 };
+const WALL_FOOT_X = 188;
+const PLANK_TOE = { x: 318, y: FLOOR_Y };
+const LONG_LEVER_TOE = { x: 324, y: FLOOR_Y };
+const KNEE_PLANK_KNEE = { x: 262, y: MAT_Y };
+const PUSH_UP_TOP = 19.9 * deg;
+const PUSH_UP_BOTTOM = 10.65 * deg;
+
+function pushUpBody(t: number, bottom = PUSH_UP_BOTTOM, top = PUSH_UP_TOP) {
+  return plankFromToes(PUSH_UP_TOE, lerp(top, bottom, t), -1);
 }
 
 function buildIncline(t: number): Pose {
-  const { ankle, toe } = toesPlanted(96);
-  const wrist = { x: 268, y: 200 };
-  const hip = lerpPoint({ x: 148, y: 208 }, { x: 160, y: 236 }, t);
-  const { shoulder, head } = alignedSpine(hip, { x: hip.x + 82, y: hip.y - 12 });
-  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minX');
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxY');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+  const body = plankFromToes(INCLINE_TOE, lerp(43.76 * deg, 34.9 * deg, t), 1);
+  return { ...body, ...plantedArm(body.shoulder, INCLINE_HAND, 1) };
 }
 
-function buildPlank(t: number): Pose {
-  const breath = Math.sin(t * Math.PI) * 0.5;
-  const { ankle, toe } = toesPlanted(318);
-  const hip = { x: 206, y: 228 + breath };
-  const { shoulder, head } = alignedSpine(hip, { x: 114, y: 226 + breath });
-  const elbow = { x: shoulder.x + 2, y: FLOOR_Y };
-  const wrist = { x: shoulder.x - 30, y: FLOOR_Y };
-  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+function buildPlank(_t: number): Pose {
+  // Forearm plank: tilt solved so the elbow rests on the mat straight under the shoulder.
+  const body = plankFromToes(PLANK_TOE, 8.36 * deg, -1);
+  return { ...body, ...forearmOnMat(body.shoulder, Math.PI, -1) };
 }
 
 function buildReverseLunge(t: number): Pose {
-  const front = foot(240);
-  const backAnkle = {
-    x: lerp(224, 122, t),
-    y: FLOOR_Y - Math.sin(t * Math.PI) * 18,
+  // From standing, the rear foot steps back in an arc and lands on its toes in the split stance.
+  const front = foot(SPLIT_FRONT_FOOT_X);
+  const hip = lerpPoint({ x: 232, y: 172 }, SPLIT_BOTTOM_HIP, t);
+  const { shoulder, head } = spine(hip, lerp(0.04, 0.1, t));
+  const rearAnkle = {
+    x: lerp(228, SPLIT_REAR_ANKLE.x, t),
+    y: lerp(FLOOR_Y, SPLIT_REAR_ANKLE.y, t) - Math.sin(t * Math.PI) * 16,
   };
-  const backToe = {
-    x: backAnkle.x + lerp(20, 16, t),
-    y: Math.min(FLOOR_Y, backAnkle.y + 8),
-  };
-  const hip = lerpPoint({ x: 232, y: 168 }, { x: 214, y: 214 }, t);
-  const lean = lerp(0.04, 0.1, t);
-  const { shoulder, head } = spine(hip, lean);
-  const arm = hangingArm(shoulder);
+  const frontLeg = standingLeg(hip, front.ankle);
+  const rearLeg = standingLeg(hip, rearAnkle);
   return {
     head,
     shoulder,
     hip,
-    ...arm,
-    knee: ik2(hip, front.ankle, LEN.thigh, LEN.shin, 'maxX'),
-    ankle: front.ankle,
+    ...hangingArm(shoulder),
+    knee: frontLeg.knee,
+    ankle: frontLeg.ankle,
     toe: front.toe,
-    knee2: ik2(hip, backAnkle, LEN.thigh, LEN.shin, 'maxY'),
-    ankle2: backAnkle,
-    toe2: backToe,
+    knee2: rearLeg.knee,
+    ankle2: rearLeg.ankle,
+    toe2: polar(rearLeg.ankle, lerp(Math.PI / 2, (3 * Math.PI) / 4, t), 20),
   };
 }
 
@@ -617,12 +671,12 @@ function buildDeadBug(t: number): Pose {
   const wristReach = { x: 56, y: 252 };
   const wrist = lerpPoint(wristHome, wristReach, sideA);
   const wrist2 = lerpPoint(wristHome, wristReach, sideB);
-  const kneeHome = polar(hip, 0.55, LEN.thigh);
-  const kneeExt = polar(hip, 1.42, LEN.thigh);
-  const knee = lerpPoint(kneeHome, kneeExt, sideB);
-  const knee2 = lerpPoint(kneeHome, kneeExt, sideA);
-  const ankle = polar(knee, 1.05, LEN.shin);
-  const ankle2 = polar(knee2, 1.05, LEN.shin);
+  // Thigh and shin swing at canonical length from tabletop to a long, slightly bent leg; the
+  // shin never passes the thigh's line, so the knee cannot bend backwards.
+  const knee = swingJoint(hip, 0.55, 1.3, sideB, LEN.thigh);
+  const knee2 = swingJoint(hip, 0.55, 1.3, sideA, LEN.thigh);
+  const ankle = polar(knee, lerp(1.05, 1.45, sideB), LEN.shin);
+  const ankle2 = polar(knee2, lerp(1.05, 1.45, sideA), LEN.shin);
   return {
     head,
     shoulder,
@@ -640,18 +694,49 @@ function buildDeadBug(t: number): Pose {
   };
 }
 
-function buildSidePlank(t: number): Pose {
-  const breath = Math.sin(t * Math.PI) * 0.45;
-  const elbow = { x: 114, y: FLOOR_Y };
-  const wrist = { x: 148, y: FLOOR_Y };
-  const shoulder = { x: 120, y: 246 + breath };
-  const hip = { x: 206, y: 247 + breath };
-  const { ankle, toe } = toesPlanted(312);
-  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
-  const head = polar(shoulder, -0.58, LEN.head);
-  const wrist2 = polar(shoulder, 0.04, LEN.upper + LEN.lower - 10);
-  const elbow2 = ik2(shoulder, wrist2, LEN.upper, LEN.lower, 'minX');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe, elbow2, wrist2 };
+// ---------------------------------------------------------------------------------------------
+// Side-plank family (side view). One straight line from the stacked feet (or knees) to the head
+// rests on a forearm with the elbow under the shoulder, or on a straight arm for the star plank.
+// All segments are canonical; the top arm/leg are straight canonical chains.
+// ---------------------------------------------------------------------------------------------
+
+/** Elbow of the supporting forearm on the mat; the shoulder sits straight above it. */
+const SIDE_ELBOW = { x: 124, y: MAT_Y };
+/** Side of the stacked feet resting on the mat. */
+const SIDE_ANKLE_Y = FLOOR_Y - 6;
+const KNEE_SIDE_KNEE = { x: 262, y: MAT_Y };
+const STAR_HAND = { x: 128, y: FLOOR_Y };
+const STAR_SHOULDER = { x: 132, y: 215 };
+
+/** Straight line from the shoulder down to the stacked feet at SIDE_ANKLE_Y. */
+function sideLineFromShoulder(shoulder: Point) {
+  const tilt = Math.asin((SIDE_ANKLE_Y - shoulder.y) / (LEN.torso + LEN.thigh + LEN.shin));
+  const angle = bodyAngle(tilt, -1);
+  const toFeet = angle + Math.PI;
+  const hip = polar(shoulder, toFeet, LEN.torso);
+  const knee = polar(hip, toFeet, LEN.thigh);
+  const ankle = polar(knee, toFeet, LEN.shin);
+  return {
+    shoulder,
+    head: polar(shoulder, angle, LEN.head),
+    hip,
+    knee,
+    ankle,
+    toe: { x: ankle.x + 18, y: FLOOR_Y },
+  };
+}
+
+/** Top arm reaching straight up from the shoulder. */
+function topArmUp(shoulder: Point, lean = 0.04) {
+  const arm = straightArmAt(shoulder, lean);
+  return { elbow2: arm.elbow, wrist2: arm.wrist };
+}
+
+function buildSidePlank(_t: number): Pose {
+  // Forearm side plank: elbow under the shoulder, straight line to the stacked feet, top arm up.
+  const shoulder = polar(SIDE_ELBOW, 0, LEN.upper);
+  const body = sideLineFromShoulder(shoulder);
+  return { ...body, ...forearmOnMat(shoulder, Math.PI, -1), ...topArmUp(shoulder) };
 }
 
 function rotatePoint(p: Point, pivot: Point, angle: number): Point {
@@ -662,41 +747,28 @@ function rotatePoint(p: Point, pivot: Point, angle: number): Point {
   return { x: pivot.x + dx * c - dy * s, y: pivot.y + dx * s + dy * c };
 }
 
-function buildKneePlank(t: number): Pose {
-  const breath = Math.sin(t * Math.PI) * 0.5;
-  const knee = { x: 262, y: FLOOR_Y - 4 };
-  const ankle = { x: 318, y: FLOOR_Y - 26 };
-  const toe = { x: 334, y: FLOOR_Y - 32 };
-  const toward = { x: 118, y: 226 + breath };
-  const hip = extend(knee, toward, LEN.thigh);
-  const { shoulder, head } = alignedSpine(hip, toward);
-  const elbow = { x: shoulder.x + 2, y: FLOOR_Y };
-  const wrist = { x: shoulder.x - 30, y: FLOOR_Y };
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+function buildKneePlank(_t: number): Pose {
+  const body = plankFromKnee(KNEE_PLANK_KNEE, 19.78 * deg, -1);
+  return { ...body, ...liftedShin(KNEE_PLANK_KNEE, -1), ...forearmOnMat(body.shoulder, Math.PI, -1) };
 }
 
 function buildShoulderTaps(t: number): Pose {
-  const tap = pulse(t, 0, 0.25, 0.5) + pulse(t, 0.5, 0.75, 1);
-  const { ankle, toe } = toesPlanted(312);
-  const hip = { x: 214, y: 216 };
-  const { shoulder, head } = alignedSpine(hip, { x: hip.x - 88, y: hip.y - 8 });
-  const wrist = { x: shoulder.x - 4, y: FLOOR_Y };
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxX');
-  const wrist2 = lerpPoint({ x: shoulder.x + 4, y: FLOOR_Y }, { x: shoulder.x + 8, y: shoulder.y + 12 }, tap);
-  const elbow2 = ik2(shoulder, wrist2, LEN.upper, LEN.lower, 'maxY');
-  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe, elbow2, wrist2 };
+  const body = pushUpBody(0);
+  // The tapping hand comes up in front of the chest to the opposite shoulder; elbow points down.
+  const tapTarget = { x: body.shoulder.x - 14, y: body.shoulder.y + 6 };
+  const tapHand = (amount: number) => ({
+    x: lerp(PUSH_UP_HAND.x, tapTarget.x, amount) - Math.sin(amount * Math.PI) * 8,
+    y: lerp(PUSH_UP_HAND.y, tapTarget.y, amount),
+  });
+  const armA = plantedArm(body.shoulder, tapHand(pulse(t, 0, 0.25, 0.5)), -1);
+  const armB = plantedArm(body.shoulder, tapHand(pulse(t, 0.5, 0.75, 1)), -1);
+  return { ...body, ...armA, elbow2: armB.elbow, wrist2: armB.wrist };
 }
 
-function buildLongLeverPlank(t: number): Pose {
-  const breath = Math.sin(t * Math.PI) * 0.5;
-  const { ankle, toe } = toesPlanted(326);
-  const hip = { x: 220, y: 244 + breath };
-  const { shoulder, head } = alignedSpine(hip, { x: 128, y: 240 + breath });
-  const elbow = { x: shoulder.x - 30, y: FLOOR_Y };
-  const wrist = { x: elbow.x - 34, y: FLOOR_Y };
-  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+function buildLongLeverPlank(_t: number): Pose {
+  // Elbows reach ahead of the shoulders; tilt solved so they rest on the mat.
+  const body = plankFromToes(LONG_LEVER_TOE, 5.8 * deg, -1);
+  return { ...body, ...forearmOnMat(body.shoulder, Math.PI + 0.63, -1) };
 }
 
 function buildExtendedDeadBug(t: number): Pose {
@@ -709,14 +781,11 @@ function buildExtendedDeadBug(t: number): Pose {
   const wristReach = { x: 34, y: 270 };
   const wrist = lerpPoint(wristHome, wristReach, sideA);
   const wrist2 = lerpPoint(wristHome, wristReach, sideB);
-  const kneeHome = polar(hip, 0.55, LEN.thigh);
-  const kneeLong = polar(hip, 1.5, LEN.thigh);
-  const ankleHome = polar(kneeHome, 1.05, LEN.shin);
-  const ankleLong = polar(kneeLong, 1.5, LEN.shin);
-  const knee = lerpPoint(kneeHome, kneeLong, sideB);
-  const knee2 = lerpPoint(kneeHome, kneeLong, sideA);
-  const ankle = lerpPoint(ankleHome, ankleLong, sideB);
-  const ankle2 = lerpPoint(ankleHome, ankleLong, sideA);
+  // Thigh and shin both swing at canonical length until the leg is long and straight.
+  const knee = swingJoint(hip, 0.55, 1.5, sideB, LEN.thigh);
+  const knee2 = swingJoint(hip, 0.55, 1.5, sideA, LEN.thigh);
+  const ankle = polar(knee, lerp(1.05, 1.5, sideB), LEN.shin);
+  const ankle2 = polar(knee2, lerp(1.05, 1.5, sideA), LEN.shin);
   return {
     head,
     shoulder,
@@ -735,15 +804,22 @@ function buildExtendedDeadBug(t: number): Pose {
 }
 
 function buildTuckHollowHold(t: number): Pose {
+  // Low back on the mat, shoulders lifted, knees pulled in over the chest with shins level;
+  // straight arms reach toward the shins.
   const breath = Math.sin(t * Math.PI) * 0.6;
   const hip = { x: 196, y: 286 };
-  const shoulder = { x: 146, y: 256 + breath };
+  const shoulder = polar(hip, angleFromVertical(hip, { x: 146, y: 256 + breath }), LEN.torso);
   const head = polar(shoulder, -0.95, LEN.head);
-  const knee = polar(hip, 0.3, LEN.thigh);
-  const ankle = polar(knee, 1.75, LEN.shin);
-  const wrist = { x: knee.x + 14, y: knee.y + 12 };
-  const elbow = lerpPoint(shoulder, wrist, LEN.upper / (LEN.upper + LEN.lower));
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe: polar(ankle, 1.2, 16) };
+  const { knee, ankle } = legChain(hip, -0.2, 1.45);
+  return {
+    head,
+    shoulder,
+    ...straightArmAt(shoulder, angleFromVertical(shoulder, lerpPoint(knee, ankle, 0.6))),
+    hip,
+    knee,
+    ankle,
+    toe: polar(ankle, 1.2, 16),
+  };
 }
 
 function hollowShape(breath: number): Pose {
@@ -771,88 +847,129 @@ function buildHollowRocks(t: number): Pose {
   return rotated;
 }
 
-function buildKneeSidePlank(t: number): Pose {
-  const breath = Math.sin(t * Math.PI) * 0.45;
-  const elbow = { x: 114, y: FLOOR_Y };
-  const wrist = { x: 148, y: FLOOR_Y };
-  const shoulder = { x: 120, y: 246 + breath };
-  const knee = { x: 262, y: FLOOR_Y - 4 };
-  const hip = extend(shoulder, knee, LEN.torso + 8);
-  const ankle = { x: 300, y: FLOOR_Y - 48 };
-  const toe = { x: 314, y: FLOOR_Y - 58 };
-  const head = polar(shoulder, -0.58, LEN.head);
-  const wrist2 = polar(shoulder, 0.04, LEN.upper + LEN.lower - 10);
-  const elbow2 = ik2(shoulder, wrist2, LEN.upper, LEN.lower, 'minX');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe, elbow2, wrist2 };
+function buildKneeSidePlank(_t: number): Pose {
+  // Knees are the base: forearm under the shoulder, straight knee → head line, shins behind.
+  const tilt = Math.asin(LEN.upper / (LEN.thigh + LEN.torso));
+  const body = plankFromKnee(KNEE_SIDE_KNEE, tilt, -1);
+  return {
+    ...body,
+    ...liftedShin(KNEE_SIDE_KNEE, -1),
+    ...forearmOnMat(body.shoulder, Math.PI, -1),
+    ...topArmUp(body.shoulder),
+  };
 }
 
 function buildSidePlankHipDip(t: number): Pose {
-  const elbow = { x: 114, y: FLOOR_Y };
-  const wrist = { x: 148, y: FLOOR_Y };
-  const shoulder = { x: 120, y: 246 };
-  const hip = lerpPoint({ x: 206, y: 247 }, { x: 200, y: 284 }, t);
-  const { ankle, toe } = toesPlanted(312);
-  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
-  const head = polar(shoulder, -0.58, LEN.head);
-  const wrist2 = { x: hip.x - 8, y: hip.y - 16 };
-  const elbow2 = ik2(shoulder, wrist2, LEN.upper, LEN.lower, 'minY');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe, elbow2, wrist2 };
+  // Elbow and feet stay planted; the hips drop below the side-plank line and lift back. With a
+  // rigid torso and straight legs this needs the shoulder to tip slightly over the elbow.
+  const shoulder = polar(SIDE_ELBOW, lerp(0, 0.11, t), LEN.upper);
+  const line = sideLineFromShoulder(polar(SIDE_ELBOW, 0, LEN.upper));
+  const { joint: hip } = limb(shoulder, line.ankle, LEN.torso, LEN.thigh + LEN.shin, 1);
+  const knee = extend(hip, line.ankle, LEN.thigh);
+  const top = limb(shoulder, { x: hip.x - 4, y: hip.y - 12 }, LEN.upper, LEN.lower, -1);
+  return {
+    head: polar(shoulder, angleFromVertical(hip, shoulder), LEN.head),
+    shoulder,
+    ...forearmOnMat(shoulder, angleFromVertical(shoulder, SIDE_ELBOW), -1),
+    hip,
+    knee,
+    ankle: line.ankle,
+    toe: line.toe,
+    elbow2: top.joint,
+    wrist2: top.end,
+  };
 }
 
-function buildStarPlank(t: number): Pose {
-  const breath = Math.sin(t * Math.PI) * 0.45;
-  const wrist = { x: 128, y: FLOOR_Y };
-  const shoulder = { x: 132, y: 216 + breath };
-  const elbow = lerpPoint(shoulder, wrist, LEN.upper / (LEN.upper + LEN.lower));
-  const hip = { x: 212, y: 236 + breath };
-  const { ankle, toe } = toesPlanted(316);
-  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
-  const head = polar(shoulder, -0.5, LEN.head);
-  const wrist2 = polar(shoulder, 0.08, LEN.upper + LEN.lower);
-  const elbow2 = lerpPoint(shoulder, wrist2, LEN.upper / (LEN.upper + LEN.lower));
-  const knee2 = polar(hip, 0.95, LEN.thigh);
-  const ankle2 = polar(knee2, 0.95, LEN.shin);
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe, elbow2, wrist2, knee2, ankle2, toe2: polar(ankle2, 1.9, 14) };
+function buildStarPlank(_t: number): Pose {
+  // Straight-arm side plank with the top arm straight up and the top leg raised: a star.
+  const body = sideLineFromShoulder(STAR_SHOULDER);
+  const topLeg = legChain(body.hip, 0.95, 0.95);
+  return {
+    ...body,
+    ...limbToArm(limb(STAR_SHOULDER, STAR_HAND, LEN.upper, LEN.lower, -1)),
+    ...topArmUp(STAR_SHOULDER, 0.08),
+    knee2: topLeg.knee,
+    ankle2: topLeg.ankle,
+    toe2: polar(topLeg.ankle, 1.9, 14),
+  };
+}
+
+function limbToArm({ joint, end }: { joint: Point; end: Point }) {
+  return { elbow: joint, wrist: end };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Quadruped family. Hands under the shoulders, knees (or feet) under the hips, the one-segment
+// torso between them at canonical length. Arms bend with the elbow toward the knees; every limb
+// is a canonical chain with a fixed bend side, so nothing flips between frames.
+// ---------------------------------------------------------------------------------------------
+
+const QUAD_KNEE = { x: 210, y: MAT_Y };
+const QUAD_HAND = { x: 140, y: FLOOR_Y };
+const CAT_COW_HAND = { x: 148, y: FLOOR_Y };
+const BEAR_HAND = { x: 144, y: FLOOR_Y };
+const BEAR_ANKLE = { x: 277.5, y: FLOOR_Y - 10 };
+const BEAR_TOE = { x: 266, y: FLOOR_Y };
+const CHILD_KNEE = { x: 210, y: MAT_Y };
+const CHILD_HAND = { x: 124, y: MAT_Y };
+
+/** Shin and instep resting on the mat behind a kneeling knee. */
+function kneelingShin(knee: Point) {
+  const ankle = polar(knee, Math.PI / 2, LEN.shin);
+  return { ankle, toe: polar(ankle, Math.PI / 2 + 0.2, 14) };
+}
+
+/** Arm from the shoulder to a hand on (or leaving) the floor; the elbow bends toward the knees. */
+function quadArm(shoulder: Point, hand: Point) {
+  const { joint, end } = limb(shoulder, hand, LEN.upper, LEN.lower, -1);
+  return { elbow: joint, wrist: end };
 }
 
 function buildBirdDog(t: number): Pose {
-  const hip = { x: 210, y: 230 };
-  const shoulder = { x: 138, y: 230 };
-  const head = polar(shoulder, -0.52, LEN.head);
-  const supportWrist = { x: 138, y: FLOOR_Y };
-  const supportKnee = { x: 210, y: FLOOR_Y };
-  const supportAnkle = { x: 236, y: FLOOR_Y };
-  const supportToe = { x: 258, y: FLOOR_Y };
-  const wristReach = lerpPoint(supportWrist, { x: 46, y: 230 }, t);
-  const kneeReach = lerpPoint(supportKnee, { x: 278, y: 230 }, t);
-  const ankleReach = lerpPoint(supportAnkle, { x: 342, y: 230 }, t);
-  const toeReach = lerpPoint(supportToe, { x: 364, y: 226 }, t);
+  // Opposite arm and leg extend in turn from a stable tabletop: the arm swings forward to
+  // shoulder height, the leg swings back to hip height, both at full canonical length.
+  const reachA = pulse(t, 0, 0.25, 0.5);
+  const reachB = pulse(t, 0.5, 0.75, 1);
+  const hip = polar(QUAD_KNEE, 0, LEN.thigh);
+  const shoulder = polar(hip, -1.35, LEN.torso);
+  const head = polar(shoulder, -1.6, LEN.head);
+  const plantedAngle = angleFromVertical(shoulder, QUAD_HAND);
+  const plantedReach = Math.hypot(QUAD_HAND.x - shoulder.x, QUAD_HAND.y - shoulder.y);
+  const arm = (reach: number) =>
+    quadArm(
+      shoulder,
+      polar(shoulder, lerp(plantedAngle, -Math.PI / 2, reach), lerp(plantedReach, LEN.upper + LEN.lower, reach))
+    );
+  const leg = (reach: number) => {
+    const { knee, ankle } = legChain(hip, lerp(Math.PI, Math.PI / 2, reach), Math.PI / 2);
+    return { knee, ankle, toe: polar(ankle, Math.PI / 2 + lerp(0.2, 0.1, reach), 14) };
+  };
+  const armA = arm(reachA);
+  const armB = arm(reachB);
+  const legA = leg(reachB);
+  const legB = leg(reachA);
   return {
     head,
     shoulder,
     hip,
-    elbow: ik2(shoulder, supportWrist, LEN.upper, LEN.lower, 'maxY'),
-    wrist: supportWrist,
-    elbow2: ik2(shoulder, wristReach, LEN.upper, LEN.lower, 'minY'),
-    wrist2: wristReach,
-    knee: supportKnee,
-    ankle: supportAnkle,
-    toe: supportToe,
-    knee2: kneeReach,
-    ankle2: ankleReach,
-    toe2: toeReach,
+    ...armA,
+    elbow2: armB.elbow,
+    wrist2: armB.wrist,
+    ...legA,
+    knee2: legB.knee,
+    ankle2: legB.ankle,
+    toe2: legB.toe,
   };
 }
 
 function buildCrunch(t: number): Pose {
+  // Shoulders curl up about 30° from the mat while the arms reach straight toward the knees.
   const hip = { x: 172, y: 280 };
   const { ankle, toe } = foot(254);
   const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
   const torsoAngle = lerp(-1.52, -1.04, t);
   const { shoulder, head } = spine(hip, torsoAngle);
-  const wrist = { x: head.x + 8, y: head.y + 18 };
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxY');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+  return { head, shoulder, ...straightArmAt(shoulder, angleFromVertical(shoulder, knee)), hip, knee, ankle, toe };
 }
 
 function buildSingleLegBridge(t: number): Pose {
@@ -894,34 +1011,57 @@ function buildSingleLegRdl(t: number): Pose {
   return { head, shoulder, hip, knee, ankle, toe, ...arm, knee2, ankle2, toe2: polar(ankle2, back + 1.5, 14) };
 }
 
+// ---------------------------------------------------------------------------------------------
+// Horizontal pull / row family. Hands stay fixed on the bar; a rigid body hangs from them and
+// pivots on the heels (or on bent knees for the assisted row), rotating toward the bar. Arms use
+// canonical lengths and the elbows always bend toward the hips.
+// ---------------------------------------------------------------------------------------------
+
+/** Height of the Bar prop the rows hold. */
+const ROW_BAR_Y = 148;
+const ROW_HAND = { x: 150, y: ROW_BAR_Y };
+/** Ankle resting on the heel on the floor; the straight body rotates around it. */
+const ROW_HEEL = { x: 300, y: FLOOR_Y - 5 };
+const ROW_BOTTOM = 20.85 * deg;
+const ROW_TOP = 32.77 * deg;
+const ARCHER_ROW_SIDE_HAND = { x: 100, y: ROW_BAR_Y };
+const ELEVATED_ROW_HAND = { x: 188, y: ROW_BAR_Y };
+/** Heels resting on the RowFootRest prop (top at y = 212). */
+const ELEVATED_ROW_HEEL = { x: 366, y: 207 };
+const ASSISTED_ROW_HAND = { x: 160, y: ROW_BAR_Y };
+const ASSISTED_ROW_FOOT_X = 262;
+
+/** Straight body from heels at `heel`, head toward −x, toes pointing up (perpendicular to shin). */
+function rowBodyFromHeels(heel: Point, tilt: number) {
+  const angle = bodyAngle(tilt, -1);
+  const knee = polar(heel, angle, LEN.shin);
+  const hip = polar(knee, angle, LEN.thigh);
+  const shoulder = polar(hip, angle, LEN.torso);
+  const head = polar(shoulder, angle, LEN.head);
+  return { ankle: heel, toe: polar(heel, tilt, 18), knee, hip, shoulder, head };
+}
+
+/** Arm from the shoulder to a hand fixed on the bar; the elbow bends toward the hips. */
+function barArm(shoulder: Point, hand: Point) {
+  const { joint, end } = limb(shoulder, hand, LEN.upper, LEN.lower, 1);
+  return { elbow: joint, wrist: end };
+}
+
 function buildRow(t: number): Pose {
-  const { ankle, toe } = foot(258);
-  const wrist = { x: 156, y: 148 };
-  const hip = lerpPoint({ x: 198, y: 248 }, { x: 208, y: 226 }, t);
-  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
-  const { shoulder, head } = alignedSpine(hip, { x: hip.x - 70, y: hip.y - 18 });
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxY');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+  const body = rowBodyFromHeels(ROW_HEEL, lerp(ROW_BOTTOM, ROW_TOP, t));
+  return { ...body, ...barArm(body.shoulder, ROW_HAND) };
 }
 
 function buildFeetElevatedRow(t: number): Pose {
-  const ankle = { x: 364, y: 203 };
-  const toe = { x: 384, y: 212 };
-  const wrist = { x: 156, y: 148 };
-  const tilt = lerp(0.16, -0.1, t);
-  const toward = { x: ankle.x - Math.cos(tilt) * 100, y: ankle.y + Math.sin(tilt) * 100 };
-  const hip = extend(ankle, toward, LEN.thigh + LEN.shin);
-  const { shoulder, head } = alignedSpine(hip, extend(ankle, toward, 400));
-  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxX');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+  // Heels on the foot rest: the body hangs lower than the feet at the bottom and rows up level.
+  const body = rowBodyFromHeels(ELEVATED_ROW_HEEL, lerp(-7.03 * deg, 5.62 * deg, t));
+  return { ...body, ...barArm(body.shoulder, ELEVATED_ROW_HAND) };
 }
 
 function buildArcherRow(t: number): Pose {
+  // One arm rows; the other stays straight out along the bar.
   const pose = buildRow(t);
-  const wrist2 = { x: 100, y: 148 };
-  const elbow2 = lerpPoint(pose.shoulder, wrist2, LEN.upper / (LEN.upper + LEN.lower));
-  return { ...pose, elbow2, wrist2 };
+  return { ...pose, ...lateralStraightArm(pose.shoulder, ARCHER_ROW_SIDE_HAND) };
 }
 
 const HIGH_BAR_Y = 24;
@@ -946,133 +1086,179 @@ function buildDeadHang(t: number): Pose {
   return { shoulder, elbow: straightArm(shoulder, wrist), wrist, ...hangingBody(shoulder, 0, 0.9) };
 }
 
-function buildScapularPullUp(t: number): Pose {
-  const wrist = { x: 200, y: HIGH_BAR_Y };
-  const shoulder = { x: lerp(200, 197, t), y: HIGH_BAR_Y + lerp(LEN.upper + LEN.lower - 1, LEN.upper + LEN.lower - 9, t) };
-  return { shoulder, elbow: straightArm(shoulder, wrist), wrist, ...hangingBody(shoulder, lerp(0, -0.12, t), 0.9) };
+// ---------------------------------------------------------------------------------------------
+// Hanging pulls. Hands stay fixed on the high bar; arms are canonical limb() chains whose elbows
+// bend forward (+x, the direction the hanging figure faces); the body hangs from the shoulder via
+// hangingBody. Dead hang and the hanging leg raises keep their original builders.
+// ---------------------------------------------------------------------------------------------
+
+const HANG_HAND = { x: 200, y: HIGH_BAR_Y };
+/** Near-straight hanging arm (elbow ≈ 170°), the shared bottom of every pull. */
+const HANG_REACH = 85.6;
+const HANG_BOTTOM = { x: HANG_HAND.x, y: HIGH_BAR_Y + HANG_REACH };
+/** Top of a pull-up: shoulders just under and behind the bar, chin level with it. */
+const PULL_UP_TOP = { x: 176, y: HIGH_BAR_Y + 16 };
+/** Top of a chin-up: torso more upright and closer under the bar than a pull-up. */
+const CHIN_UP_TOP = { x: 194, y: HIGH_BAR_Y + 14 };
+const ARCHER_PULL_SIDE_HAND = { x: 140, y: HIGH_BAR_Y };
+
+function hangArm(shoulder: Point, hand: Point, bend: 1 | -1 = 1) {
+  const { joint, end } = limb(shoulder, hand, LEN.upper, LEN.lower, bend);
+  return { elbow: joint, wrist: end };
 }
 
-function pullUpPose(p: number, elbowSide: 'maxX' | 'minX', lean: number, kneeBend = 0.9): Pose {
-  const wrist = { x: 200, y: HIGH_BAR_Y };
-  const shoulder = { x: 200 - lean * 30 * p, y: HIGH_BAR_Y + lerp(LEN.upper + LEN.lower - 1, 40, p) };
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, elbowSide);
-  return { shoulder, elbow, wrist, ...hangingBody(shoulder, -lean * p, kneeBend) };
+/** A pull at progress `p` (0 = bottom hang, 1 = top) toward `top`, leaning back by `lean` at the top. */
+function pullPose(p: number, top: Point, lean: number): Pose {
+  const shoulder = lerpPoint(HANG_BOTTOM, top, p);
+  return { shoulder, ...hangArm(shoulder, HANG_HAND), ...hangingBody(shoulder, lean * p, 0.9) };
+}
+
+function buildScapularPullUp(t: number): Pose {
+  // Straight arms at canonical length: the shoulder can only swing on the arm's arc under the
+  // hand, so the scapular action shows as the chest lifting and the body tipping back slightly
+  // from a relaxed hang, not as an elbow bend.
+  const shoulder = polar(HANG_HAND, Math.PI + lerp(0, 0.12, t), HANG_REACH);
+  return { shoulder, ...hangArm(shoulder, HANG_HAND), ...hangingBody(shoulder, lerp(0.06, -0.2, t), 0.9) };
 }
 
 function buildChinUp(t: number): Pose {
-  return pullUpPose(t, 'maxX', 0.04);
+  return pullPose(t, CHIN_UP_TOP, 0);
 }
 
 function buildPullUp(t: number): Pose {
-  return pullUpPose(t, 'minX', 0.2);
+  return pullPose(t, PULL_UP_TOP, -0.2);
 }
 
 function buildNegativePullUp(t: number): Pose {
-  return pullUpPose(1 - t, 'minX', 0.2, lerp(1.5, 0.9, t));
+  // Eccentric: t = 0 is the top (chin at the bar), t = 1 the straight-arm hang. The shared cycle
+  // plays t back from 1 to 0 afterwards, so the return is shown as the same path in reverse.
+  return pullPose(1 - t, PULL_UP_TOP, -0.2);
 }
 
 function buildArcherPullUp(t: number): Pose {
-  const wrist = { x: 200, y: HIGH_BAR_Y };
-  const wrist2 = { x: 110, y: HIGH_BAR_Y };
-  const shoulder = { x: lerp(186, 196, t), y: HIGH_BAR_Y + lerp(LEN.upper + LEN.lower - 6, 40, t) };
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'minX');
-  return { shoulder, elbow, wrist, elbow2: straightArm(shoulder, wrist2), wrist2, ...hangingBody(shoulder, -0.1 * t, 0.9) };
+  // The straight arm pivots on its own hand at full length while the other arm pulls, so the
+  // shoulder travels on that arm's arc toward the working hand.
+  const bottom = angleFromVertical(ARCHER_PULL_SIDE_HAND, { x: 170, y: HIGH_BAR_Y + 80.4 });
+  const top = angleFromVertical(ARCHER_PULL_SIDE_HAND, { x: 221.8, y: HIGH_BAR_Y + 26 });
+  const shoulder = polar(ARCHER_PULL_SIDE_HAND, lerp(bottom, top, t), HANG_REACH);
+  const side = hangArm(shoulder, ARCHER_PULL_SIDE_HAND);
+  return {
+    shoulder,
+    ...hangArm(shoulder, HANG_HAND, -1),
+    elbow2: side.elbow,
+    wrist2: side.wrist,
+    ...hangingBody(shoulder, 0, 0.9),
+  };
 }
 
 function buildWallPushUp(t: number): Pose {
-  const { ankle, toe } = foot(188);
-  const lean = lerp(0.24, 0.58, t);
-  const knee = polar(ankle, lean, LEN.shin);
-  const hip = polar(knee, lean, LEN.thigh);
-  const { shoulder, head } = spine(hip, lean * 0.98);
-  const wrist = { x: 338, y: shoulder.y + 10 };
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxY');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+  // Standing lean: a straight body pivots on the planted feet toward hands fixed on the wall.
+  const { ankle, toe } = foot(WALL_FOOT_X);
+  const angle = lerp(0.31, 0.52, t);
+  const knee = polar(ankle, angle, LEN.shin);
+  const hip = polar(knee, angle, LEN.thigh);
+  const shoulder = polar(hip, angle, LEN.torso);
+  const head = polar(shoulder, angle, LEN.head);
+  return { head, shoulder, hip, knee, ankle, toe, ...plantedArm(shoulder, WALL_HAND, 1) };
 }
 
 function buildPushUp(t: number): Pose {
-  const { ankle, toe } = toesPlanted(312);
-  const wrist = { x: 108, y: FLOOR_Y };
-  const hip = lerpPoint({ x: 214, y: 216 }, { x: 224, y: 246 }, t);
-  const { shoulder, head } = alignedSpine(hip, { x: hip.x - 88, y: hip.y - 8 });
-  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxY');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+  const body = pushUpBody(t);
+  return { ...body, ...plantedArm(body.shoulder, PUSH_UP_HAND, -1) };
 }
 
 function buildKneePushUp(t: number): Pose {
-  const knee = { x: 250, y: FLOOR_Y };
-  const { ankle, toe } = foot(298);
-  const wrist = { x: 112, y: FLOOR_Y };
-  const hip = lerpPoint({ x: 228, y: 224 }, { x: 236, y: 250 }, t);
-  const { shoulder, head } = alignedSpine(hip, { x: hip.x - 84, y: hip.y - 8 });
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxY');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+  const body = plankFromKnee(KNEE_PUSH_UP_KNEE, lerp(38.5 * deg, 21 * deg, t), -1);
+  return {
+    ...body,
+    ...liftedShin(KNEE_PUSH_UP_KNEE, -1),
+    ...plantedArm(body.shoulder, KNEE_PUSH_UP_HAND, -1),
+  };
 }
 
 function buildDiamondPushUp(t: number): Pose {
-  const { ankle, toe } = toesPlanted(312);
-  const hip = lerpPoint({ x: 214, y: 216 }, { x: 224, y: 246 }, t);
-  const { shoulder, head } = alignedSpine(hip, { x: hip.x - 88, y: hip.y - 8 });
-  const wrist = { x: 150, y: FLOOR_Y };
-  const wrist2 = { x: 160, y: FLOOR_Y };
-  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxX');
-  const elbow2 = ik2(shoulder, wrist2, LEN.upper, LEN.lower, 'maxX');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe, elbow2, wrist2 };
+  // Same body line as the push-up, hands together under the chest.
+  const body = pushUpBody(t, 11 * deg, 19.8 * deg);
+  const near = plantedArm(body.shoulder, DIAMOND_HANDS[0], -1);
+  const far = plantedArm(body.shoulder, DIAMOND_HANDS[1], -1);
+  return { ...body, ...near, elbow2: far.elbow, wrist2: far.wrist };
 }
 
 function buildDeclinePushUp(t: number): Pose {
-  const ankle = { x: 334, y: 203 };
-  const toe = { x: 354, y: 212 };
-  const wrist = { x: 126, y: FLOOR_Y };
-  const tilt = lerp(0.06, 0.23, t);
-  const toward = { x: ankle.x - Math.cos(tilt) * 100, y: ankle.y + Math.sin(tilt) * 100 };
-  const hip = extend(ankle, toward, LEN.thigh + LEN.shin);
-  const { shoulder, head } = alignedSpine(hip, extend(ankle, toward, 400));
-  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxY');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+  // Toes planted on the footrest; the body slopes down toward hands on the floor.
+  const body = plankFromToes(DECLINE_TOE, lerp(-6.8 * deg, -15.5 * deg, t), -1);
+  return { ...body, ...plantedArm(body.shoulder, DECLINE_HAND, -1) };
 }
 
 function buildArcherPushUp(t: number): Pose {
-  const { ankle, toe } = toesPlanted(312);
-  const hip = lerpPoint({ x: 216, y: 226 }, { x: 226, y: 252 }, t);
-  const { shoulder, head } = alignedSpine(hip, { x: hip.x - 88, y: hip.y - 6 });
-  const wrist = { x: 158, y: FLOOR_Y };
-  const wrist2 = { x: 96, y: FLOOR_Y };
-  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'minY');
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxX');
-  const elbow2 = lerpPoint(shoulder, wrist2, LEN.upper / (LEN.upper + LEN.lower));
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe, elbow2, wrist2 };
+  // The working arm bends under the shoulder; the other arm stays straight out to the side.
+  // Top stays a little lower so the sideways arm is never longer than a real arm.
+  const body = pushUpBody(t, 13.5 * deg, 19.3 * deg);
+  return {
+    ...body,
+    ...plantedArm(body.shoulder, PUSH_UP_HAND, -1),
+    ...lateralStraightArm(body.shoulder, ARCHER_SIDE_HAND),
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Standing lower body / support hand. Legs are canonical limb() chains from the hip to planted
+// feet with knees bending forward (the figure faces +x); every stance is chosen so each leg can
+// reach its foot. Support hands hold fixed points the arm can reach at canonical length.
+// ---------------------------------------------------------------------------------------------
+
+/** Pole of the Support prop, in front of the figure; hands hold it at SUPPORT_HAND. */
+const SUPPORT_X = 270;
+const SUPPORT_HAND = { x: SUPPORT_X - 4, y: 150 };
+/** Split-squat stance shared by the split squat, assisted split squat and reverse lunge. */
+const SPLIT_FRONT_FOOT_X = 236;
+const SPLIT_REAR_ANKLE = { x: 124, y: FLOOR_Y - 14 };
+const SPLIT_REAR_TOE = { x: 138, y: FLOOR_Y };
+const SPLIT_TOP_HIP = { x: 186, y: 182 };
+const SPLIT_BOTTOM_HIP = { x: 190, y: 226 };
+const BULGARIAN_REAR_ANKLE = { x: 112, y: 224 };
+const BULGARIAN_REAR_TOE = { x: 96, y: 232 };
+const STEP_TOP_Y = 248;
+const STEP_FOOT = { x: 262, y: STEP_TOP_Y };
+const CALF_TOE = { x: 286, y: FLOOR_Y };
+const CALF_HAND = { x: 333, y: 120 };
+
+/** Leg from the hip to a planted ankle; the knee bends forward (+x). */
+function standingLeg(hip: Point, ankle: Point) {
+  const { joint, end } = limb(hip, ankle, LEN.thigh, LEN.shin, -1);
+  return { knee: joint, ankle: end };
+}
+
+/** Arm from the shoulder to a fixed hand hold; the elbow bends down/away from the hold. */
+function supportArm(shoulder: Point, hand: Point) {
+  const { joint, end } = limb(shoulder, hand, LEN.upper, LEN.lower, 1);
+  return { elbow: joint, wrist: end };
 }
 
 function buildSplitSquat(t: number): Pose {
-  const front = foot(250);
-  const back = foot(128);
-  const hip = lerpPoint({ x: 214, y: 168 }, { x: 210, y: 214 }, t);
-  const lean = lerp(0.06, 0.12, t);
-  const { shoulder, head } = spine(hip, lean);
-  const arm = hangingArm(shoulder);
+  // Front foot flat, rear foot on its toes; the hips drop straight down between them.
+  const front = foot(SPLIT_FRONT_FOOT_X);
+  const hip = lerpPoint(SPLIT_TOP_HIP, SPLIT_BOTTOM_HIP, t);
+  const { shoulder, head } = spine(hip, lerp(0.06, 0.12, t));
+  const frontLeg = standingLeg(hip, front.ankle);
+  const rearLeg = standingLeg(hip, SPLIT_REAR_ANKLE);
   return {
     head,
     shoulder,
     hip,
-    ...arm,
-    knee: ik2(hip, front.ankle, LEN.thigh, LEN.shin, 'maxX'),
-    ankle: front.ankle,
+    ...hangingArm(shoulder),
+    knee: frontLeg.knee,
+    ankle: frontLeg.ankle,
     toe: front.toe,
-    knee2: ik2(hip, back.ankle, LEN.thigh, LEN.shin, 'maxY'),
-    ankle2: back.ankle,
-    toe2: back.toe,
+    knee2: rearLeg.knee,
+    ankle2: rearLeg.ankle,
+    toe2: SPLIT_REAR_TOE,
   };
 }
 
 function buildAssistedSplitSquat(t: number): Pose {
   const pose = buildSplitSquat(t);
-  const wrist = { x: 86, y: lerp(152, 170, t) };
-  const elbow = ik2(pose.shoulder, wrist, LEN.upper, LEN.lower, 'minX');
-  return { ...pose, elbow, wrist };
+  return { ...pose, ...supportArm(pose.shoulder, SUPPORT_HAND) };
 }
 
 function buildBoxSquat(t: number): Pose {
@@ -1090,9 +1276,8 @@ function buildAssistedPistolSquat(t: number): Pose {
   const knee = polar(ankle, lerp(0.04, 0.46, t), LEN.shin);
   const hip = polar(knee, lerp(0.04, -1.34, t), LEN.thigh);
   const { shoulder, head } = spine(hip, lerp(0.06, 0.42, t));
-  const wrist = { x: 86, y: lerp(150, 196, t) };
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'minX');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe, ...freeLegForward(hip, t) };
+  // The hand holds the support in front; the arm reaches further forward as the hips sit back.
+  return { head, shoulder, ...supportArm(shoulder, SUPPORT_HAND), hip, knee, ankle, toe, ...freeLegForward(hip, t) };
 }
 
 function buildPistolSquat(t: number): Pose {
@@ -1105,52 +1290,75 @@ function buildPistolSquat(t: number): Pose {
 }
 
 function buildBulgarianSplitSquat(t: number): Pose {
+  // Rear instep on the bench; the front leg does the work.
   const front = foot(252);
-  const backAnkle = { x: 112, y: 224 };
-  const backToe = { x: 96, y: 232 };
-  const hip = lerpPoint({ x: 200, y: 170 }, { x: 196, y: 216 }, t);
+  const hip = lerpPoint({ x: 206, y: 182 }, { x: 200, y: 222 }, t);
   const { shoulder, head } = spine(hip, lerp(0.08, 0.16, t));
-  const arm = hangingArm(shoulder);
+  const frontLeg = standingLeg(hip, front.ankle);
+  const rearLeg = standingLeg(hip, BULGARIAN_REAR_ANKLE);
   return {
     head,
     shoulder,
     hip,
-    ...arm,
-    knee: ik2(hip, front.ankle, LEN.thigh, LEN.shin, 'maxX'),
-    ankle: front.ankle,
+    ...hangingArm(shoulder),
+    knee: frontLeg.knee,
+    ankle: frontLeg.ankle,
     toe: front.toe,
-    knee2: ik2(hip, backAnkle, LEN.thigh, LEN.shin, 'maxY'),
-    ankle2: backAnkle,
-    toe2: backToe,
+    knee2: rearLeg.knee,
+    ankle2: rearLeg.ankle,
+    toe2: BULGARIAN_REAR_TOE,
   };
 }
 
 function buildShrimpSquat(t: number): Pose {
+  // The rear leg stays folded (heel to glute) with the hand holding the foot; the rear knee
+  // lowers toward the floor behind the working heel.
   const { ankle, toe } = foot(224);
   const knee = polar(ankle, lerp(0.04, 0.56, t), LEN.shin);
   const hip = polar(knee, lerp(0.04, -1.3, t), LEN.thigh);
   const { shoulder, head } = spine(hip, lerp(0.1, 0.5, t));
-  const knee2 = extend(hip, { x: hip.x - lerp(8, 30, t), y: FLOOR_Y }, LEN.thigh);
-  const ankle2 = polar(knee2, -0.75, LEN.shin);
-  const wrist = { x: ankle2.x + 4, y: ankle2.y + 6 };
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxY');
+  // Thigh angled back and shin folded up behind form a visible V, kept within the arm's reach.
+  const rearShin = lerp(-0.35, -0.2, t);
+  const rear = legChain(hip, lerp(Math.PI + 0.3, Math.PI + 0.15, t), rearShin);
   const wrist2 = { x: shoulder.x + 78, y: shoulder.y + lerp(24, 6, t) };
   const elbow2 = ik2(shoulder, wrist2, LEN.upper, LEN.lower, 'maxY');
-  return { head, shoulder, hip, knee, ankle, toe, elbow, wrist, elbow2, wrist2, knee2, ankle2, toe2: polar(ankle2, -2.3, 14) };
+  return {
+    head,
+    shoulder,
+    hip,
+    knee,
+    ankle,
+    toe,
+    ...supportArm(shoulder, rear.ankle),
+    elbow2,
+    wrist2,
+    knee2: rear.knee,
+    ankle2: rear.ankle,
+    toe2: polar(rear.ankle, rearShin - 0.6, 14),
+  };
 }
 
 function buildSingleLegCalfRaise(t: number): Pose {
-  const lift = lerp(0, 18, t);
-  const ankle = { x: 200, y: FLOOR_Y - lift };
-  const toe = { x: 224, y: FLOOR_Y };
+  // The foot rolls up onto the ball (toe fixed), lifting the heel; the straight body rises with
+  // it while one hand rests on the wall and the free foot is tucked behind.
+  const ankle = polar(CALF_TOE, lerp(-Math.PI / 2, 0.73 - Math.PI / 2, t), 24);
   const knee = polar(ankle, 0.02, LEN.shin);
   const hip = polar(knee, 0.02, LEN.thigh);
   const { shoulder, head } = spine(hip, 0.04);
   const knee2 = polar(hip, Math.PI - 0.12, LEN.thigh);
   const ankle2 = polar(knee2, -1.35, LEN.shin);
-  const wrist = { x: 330, y: shoulder.y + 22 };
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxY');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe, knee2, ankle2, toe2: polar(ankle2, -2.9, 12) };
+  return {
+    head,
+    shoulder,
+    ...supportArm(shoulder, CALF_HAND),
+    hip,
+    knee,
+    ankle,
+    toe: CALF_TOE,
+    knee2,
+    ankle2,
+    toe2: polar(ankle2, -2.9, 12),
+  };
 }
 
 function buildCalfRaise(t: number): Pose {
@@ -1177,38 +1385,34 @@ function buildGoodMorning(t: number): Pose {
 }
 
 function buildAssistedRow(t: number): Pose {
-  const { ankle, toe } = foot(258);
-  const wrist = { x: 156, y: 148 };
-  const hip = lerpPoint({ x: 204, y: 214 }, { x: 196, y: 190 }, t);
-  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'maxX');
-  const { shoulder, head } = alignedSpine(hip, { x: hip.x - 40, y: hip.y - 28 });
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxY');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+  // Feet flat and knees bent at 90°: the knee → head line rows up, pivoting on the knee.
+  const { ankle, toe } = foot(ASSISTED_ROW_FOOT_X);
+  const knee = polar(ankle, 0, LEN.shin);
+  const body = plankFromKnee(knee, lerp(3.84 * deg, 21.76 * deg, t), -1);
+  return { ...body, ankle, toe, ...barArm(body.shoulder, ASSISTED_ROW_HAND) };
 }
 
 function buildReverseCrunch(t: number): Pose {
+  // Upper back stays on the mat; the pelvis curls up (torso pivots on the shoulders) and the
+  // bent knees (≈ 90°) travel from above the hips toward the chest.
   const shoulder = { x: 112, y: 278 };
   const head = polar(shoulder, -1.45, LEN.head);
-  const wrist = { x: 94, y: FLOOR_Y };
-  const hip = lerpPoint({ x: 176, y: 280 }, { x: 158, y: 254 }, t);
-  const knee = polar(hip, lerp(0.85, 0.15, t), LEN.thigh);
-  const ankle = polar(knee, lerp(1.2, 0.2, t), LEN.shin);
-  const toe = polar(ankle, lerp(1.35, 0.15, t), 16);
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxY');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+  const hip = polar(shoulder, Math.PI / 2 + lerp(0.03, -0.26, t), LEN.torso);
+  const thigh = lerp(0.02, -0.85, t);
+  const shin = thigh + lerp(Math.PI / 2, 1.45, t);
+  const { knee, ankle } = legChain(hip, thigh, shin);
+  return { head, shoulder, ...armAlongMat(shoulder), hip, knee, ankle, toe: polar(ankle, shin + 0.35, 16) };
 }
 
 function buildLyingLegRaise(t: number): Pose {
   const shoulder = { x: 112, y: 278 };
   const head = polar(shoulder, -1.45, LEN.head);
   const hip = { x: 176, y: 280 };
-  const wrist = { x: 160, y: FLOOR_Y - 4 };
-  const elbow = lerpPoint(shoulder, wrist, LEN.upper / (LEN.upper + LEN.lower));
   const legAngle = lerp(1.45, 0.12, t);
   const knee = polar(hip, legAngle, LEN.thigh);
   const ankle = polar(knee, legAngle, LEN.shin);
   const toe = polar(ankle, legAngle - 1.35, 14);
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+  return { head, shoulder, ...armAlongMat(shoulder), hip, knee, ankle, toe };
 }
 
 function hangingUpperBody() {
@@ -1238,6 +1442,8 @@ function buildHangingLegRaise(t: number): Pose {
 }
 
 function buildTuckVUp(t: number): Pose {
+  // From a long hollow (arms overhead, legs out) the torso and tucked knees fold together while
+  // the straight arms swing over to reach for the shins.
   const hip = { x: 196, y: 288 };
   const torso = lerp(-1.2, -0.5, t);
   const { shoulder, head } = spine(hip, torso);
@@ -1245,12 +1451,12 @@ function buildTuckVUp(t: number): Pose {
   const knee = polar(hip, thigh, LEN.thigh);
   const ankle = polar(knee, lerp(1.4, 1.85, t), LEN.shin);
   const toe = polar(ankle, 0.9, 14);
-  const wrist = lerpPoint(extend(shoulder, knee, 70), { x: knee.x + 6, y: knee.y + 10 }, t);
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxY');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+  const reach = angleFromVertical(shoulder, lerpPoint(knee, ankle, 0.3));
+  return { head, shoulder, ...straightArmAt(shoulder, lerpAngle(torso, reach, t)), hip, knee, ankle, toe };
 }
 
 function buildVUp(t: number): Pose {
+  // Straight legs and torso fold into a V; the straight arms swing from overhead to the shins.
   const hip = { x: 196, y: 290 };
   const torso = lerp(-1.5, -0.62, t);
   const { shoulder, head } = spine(hip, torso);
@@ -1258,67 +1464,117 @@ function buildVUp(t: number): Pose {
   const knee = polar(hip, legAngle, LEN.thigh);
   const ankle = polar(knee, legAngle, LEN.shin);
   const toe = polar(ankle, legAngle - 1.3, 14);
-  const overhead = extend(shoulder, { x: shoulder.x - 100, y: shoulder.y - 4 }, LEN.upper + LEN.lower - 4);
-  const wrist = lerpPoint(overhead, lerpPoint(knee, ankle, 0.4), t);
-  const elbow = lerpPoint(shoulder, wrist, LEN.upper / (LEN.upper + LEN.lower));
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+  const reach = angleFromVertical(shoulder, lerpPoint(knee, ankle, 0.5));
+  return { head, shoulder, ...straightArmAt(shoulder, lerpAngle(torso, reach, t)), hip, knee, ankle, toe };
 }
 
 function buildCatCow(t: number): Pose {
-  const wrist = { x: 128, y: FLOOR_Y };
-  const knee = { x: 232, y: FLOOR_Y };
-  const { ankle, toe } = foot(258);
-  const hip = lerpPoint({ x: 236, y: 216 }, { x: 226, y: 252 }, t);
-  const shoulder = lerpPoint({ x: 146, y: 214 }, { x: 128, y: 250 }, t);
-  const head = lerpPoint({ x: 114, y: 250 }, { x: 96, y: 206 }, t);
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxY');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+  // One-segment torso: t = 0 is cat (pelvis tucked forward, shoulders pushed tall, head down),
+  // t = 1 is cow (hips back, chest dropped toward the hands, head up). Hands and knees stay put.
+  const hip = polar(QUAD_KNEE, lerp(-0.12, 0.14, t), LEN.thigh);
+  const rise = lerp(214.5, 224, t) - hip.y;
+  const shoulder = { x: hip.x - Math.sqrt(LEN.torso * LEN.torso - rise * rise), y: hip.y + rise };
+  const head = polar(shoulder, angleFromVertical(hip, shoulder) + lerp(-1, 0.7, t), LEN.head);
+  return {
+    head,
+    shoulder,
+    hip,
+    ...quadArm(shoulder, CAT_COW_HAND),
+    knee: QUAD_KNEE,
+    ...kneelingShin(QUAD_KNEE),
+  };
 }
 
 function buildChildPose(t: number): Pose {
-  const breath = Math.sin(t * Math.PI) * 0.45;
-  const knee = { x: 210, y: FLOOR_Y };
-  const { ankle, toe } = foot(242);
-  const hip = { x: 226, y: 262 - breath * 0.12 };
-  const shoulder = { x: 122, y: 278 + breath * 0.08 };
-  const head = { x: 94, y: 286 };
-  const wrist = { x: 62, y: FLOOR_Y };
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'minY');
-  return { head, shoulder, elbow, wrist, hip, knee, ankle, toe };
+  // Knees and shins on the mat, hips sinking back toward the heels, chest folded over the thighs,
+  // forehead toward the mat and arms reaching forward with the hands resting in place.
+  const hip = polar(CHILD_KNEE, lerp(1.0, 1.12, t), LEN.thigh);
+  const shoulder = polar(hip, angleFromVertical(hip, { x: lerp(204, 208, t), y: lerp(282, 286, t) }), LEN.torso);
+  const { joint, end } = limb(shoulder, CHILD_HAND, LEN.upper, LEN.lower, 1);
+  return {
+    head: polar(shoulder, -Math.PI / 2, LEN.head),
+    shoulder,
+    elbow: joint,
+    wrist: end,
+    hip,
+    knee: CHILD_KNEE,
+    ...kneelingShin(CHILD_KNEE),
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Front-facing figures (jumping jacks, shoulder and hip circles). The same skeleton seen from the
+// front: the torso is the spine from pelvis (hip) to neck base (shoulder); both arms leave the
+// shoulder point and both legs the hip point, mirrored about FRONT_X. Primary limbs are the
+// figure's right side (+x), the "2" limbs its left. Every segment keeps its canonical length.
+// ---------------------------------------------------------------------------------------------
+
+type Side = 1 | -1;
+
+const FRONT_X = 200;
+const FRONT_STANCE = 10;
+
+/** Leg from the pelvis to a foot on its side; the knee gives outward, never across the body. */
+function frontLeg(hip: Point, ankle: Point, side: Side) {
+  const { joint, end } = limb(hip, ankle, LEN.thigh, LEN.shin, side === 1 ? -1 : 1);
+  return { knee: joint, ankle: end, toe: { x: end.x + side * 12, y: end.y } };
+}
+
+/** Arm from the neck base toward a hand target on its side; the elbow stays low. */
+function frontArm(shoulder: Point, hand: Point, side: Side) {
+  const { joint, end } = limb(shoulder, hand, LEN.upper, LEN.lower, side);
+  return { elbow: joint, wrist: end };
+}
+
+/** Standing front-facing body with feet planted slightly apart. */
+function frontStance(hip: Point) {
+  const right = frontLeg(hip, { x: FRONT_X + FRONT_STANCE, y: FLOOR_Y }, 1);
+  const left = frontLeg(hip, { x: FRONT_X - FRONT_STANCE, y: FLOOR_Y }, -1);
+  return { ...right, knee2: left.knee, ankle2: left.ankle, toe2: left.toe };
 }
 
 function buildShoulderCircles(t: number): Pose {
-  const { ankle, toe } = foot(200);
-  const knee = polar(ankle, 0.03, LEN.shin);
-  const hip = polar(knee, 0.03, LEN.thigh);
+  // Front view, arms out to the sides: each nearly straight arm sweeps its hand around a small
+  // ellipse beside the shoulder (mostly up/down, slightly in/out), mirrored left and right and
+  // driven through the canonical arm chain, so the elbow only softens a little.
+  const hip = { x: FRONT_X, y: 171 };
+  const shoulder = polar(hip, 0, LEN.torso);
   const angle = t * Math.PI * 2;
-  const base = polar(hip, 0.05, LEN.torso);
-  const shoulder = {
-    x: base.x + Math.cos(angle) * 7,
-    y: base.y + Math.sin(angle) * 6,
+  const reach = 82 + Math.cos(angle) * 3.5;
+  const sweep = Math.PI / 2 + 0.12 + Math.sin(angle) * 0.22;
+  const hand = (side: Side) => polar(shoulder, side * sweep, reach);
+  const right = frontArm(shoulder, hand(1), 1);
+  const left = frontArm(shoulder, hand(-1), -1);
+  return {
+    head: polar(shoulder, 0, LEN.head),
+    shoulder,
+    hip,
+    ...right,
+    elbow2: left.elbow,
+    wrist2: left.wrist,
+    ...frontStance(hip),
   };
-  const head = polar(shoulder, 0.05, LEN.head);
-  const arm = hangingArm(shoulder);
-  const wrist2 = { x: arm.wrist.x - 16, y: arm.wrist.y + 2 };
-  const elbow2 = ik2(shoulder, wrist2, LEN.upper, LEN.lower, 'minX');
-  return { head, shoulder, hip, knee, ankle, toe, ...arm, elbow2, wrist2 };
 }
 
 function buildHipCircles(t: number): Pose {
-  const { ankle, toe } = foot(200);
+  // Front view, hands on hips, feet planted: the pelvis travels an ellipse (side to side with a
+  // slight dip) while the torso leans back over it so the shoulders stay nearly centred.
   const angle = t * Math.PI * 2;
-  const hip = {
-    x: 200 + Math.cos(angle) * 12,
-    y: 170 + Math.sin(angle) * 7,
+  const hip = { x: FRONT_X + Math.cos(angle) * 12, y: 176 + Math.sin(angle) * 4 };
+  const tilt = Math.asin(((FRONT_X - hip.x) * 0.8) / LEN.torso);
+  const shoulder = polar(hip, tilt, LEN.torso);
+  const hand = (side: Side) => ({ x: hip.x + side * 18, y: hip.y - 6 });
+  const right = frontArm(shoulder, hand(1), -1);
+  const left = frontArm(shoulder, hand(-1), 1);
+  return {
+    head: polar(shoulder, tilt * 0.5, LEN.head),
+    shoulder,
+    hip,
+    ...right,
+    elbow2: left.elbow,
+    wrist2: left.wrist,
+    ...frontStance(hip),
   };
-  const knee = ik2(hip, ankle, LEN.thigh, LEN.shin, 'maxX');
-  const shoulder = {
-    x: 200 + Math.cos(angle) * 4,
-    y: hip.y - LEN.torso + 2,
-  };
-  const head = { x: shoulder.x, y: shoulder.y - LEN.head };
-  const arm = hangingArm(shoulder);
-  return { head, shoulder, hip, knee, ankle, toe, ...arm };
 }
 
 function buildDeepSquatHold(t: number): Pose {
@@ -1327,151 +1583,169 @@ function buildDeepSquatHold(t: number): Pose {
 }
 
 function buildMountainClimbers(t: number): Pose {
-  const wrist = { x: 124, y: FLOOR_Y };
-  const hip = { x: 214, y: 224 };
-  const { shoulder, head } = alignedSpine(hip, { x: 126, y: 218 });
-  const elbow = ik2(shoulder, wrist, LEN.upper, LEN.lower, 'maxY');
-  const a = pulse(t, 0, 0.25, 0.5);
-  const b = pulse(t, 0.5, 0.75, 1);
-  const backKnee = polar(hip, 1.15, LEN.thigh);
-  const frontKnee = polar(hip, 0.35, LEN.thigh);
-  const backAnkle = polar(backKnee, 1.35, LEN.shin);
-  const frontAnkle = polar(frontKnee, 0.85, LEN.shin);
+  const driveA = pulse(t, 0, 0.25, 0.5);
+  const driveB = pulse(t, 0.5, 0.75, 1);
+  const rest = pushUpBody(0);
+  const { shoulder } = rest;
+  // Hips rise slightly while a knee drives through under them (hands stay planted).
+  const lift = Math.max(driveA, driveB) * 14 * deg;
+  const torsoAngle = angleFromVertical(shoulder, rest.hip) - lift;
+  const hip = polar(shoulder, torsoAngle, LEN.torso);
+  const head = polar(shoulder, torsoAngle + Math.PI, LEN.head);
+  // Support leg stays straight to the planted toes.
+  const supportAnkle = extend(hip, rest.ankle, LEN.thigh + LEN.shin);
+  const supportKnee = extend(hip, supportAnkle, LEN.thigh);
+  const restLeg = angleFromVertical(hip, supportAnkle);
+  const leg = (drive: number) => {
+    if (drive <= 0) {
+      return { knee: supportKnee, ankle: supportAnkle, toe: rest.toe };
+    }
+    const thigh = lerp(restLeg, Math.PI + 0.8, drive);
+    const shin = lerp(restLeg, Math.PI / 2 + 0.15, drive) - Math.sin(drive * Math.PI) * 0.8;
+    const { knee, ankle } = legChain(hip, thigh, shin);
+    return { knee, ankle, toe: polar(ankle, shin + Math.PI / 2, PLANK_FOOT) };
+  };
+  const legA = leg(driveA);
+  const legB = leg(driveB);
   return {
     head,
     shoulder,
-    elbow,
-    wrist,
     hip,
-    knee: lerpPoint(backKnee, frontKnee, a),
-    ankle: lerpPoint(backAnkle, frontAnkle, a),
-    toe: lerpPoint({ x: backAnkle.x + 16, y: FLOOR_Y }, polar(frontAnkle, 0.6, 14), a),
-    knee2: lerpPoint(backKnee, frontKnee, b),
-    ankle2: lerpPoint(backAnkle, frontAnkle, b),
-    toe2: lerpPoint({ x: backAnkle.x + 16, y: FLOOR_Y }, polar(frontAnkle, 0.6, 14), b),
+    ...plantedArm(shoulder, PUSH_UP_HAND, -1),
+    ...legA,
+    knee2: legB.knee,
+    ankle2: legB.ankle,
+    toe2: legB.toe,
   };
 }
 
 function buildBearCrawl(t: number): Pose {
-  const a = pulse(t, 0, 0.25, 0.5);
-  const b = pulse(t, 0.5, 0.75, 1);
-  const hover = 18;
-  const hip = { x: 214, y: 226 };
-  const shoulder = { x: 142, y: 226 };
-  const head = polar(shoulder, -0.5, LEN.head);
-  const wristA = { x: 120 + a * 28, y: FLOOR_Y };
-  const wristB = { x: 164 + b * 28, y: FLOOR_Y };
-  const kneeA = { x: 198 + b * 28, y: FLOOR_Y - hover };
-  const kneeB = { x: 244 + a * 28, y: FLOOR_Y - hover };
-  const ankleA = { x: 226 + b * 28, y: FLOOR_Y };
-  const ankleB = { x: 272 + a * 28, y: FLOOR_Y };
+  // Hips level with the shoulders, knees hovering: diagonal pairs (hand + opposite foot) lift and
+  // step in turn while the other pair stays planted. It steps in place; the body does not travel.
+  const stepA = pulse(t, 0, 0.25, 0.5);
+  const stepB = pulse(t, 0.5, 0.75, 1);
+  const hip = { x: 214, y: 216 };
+  const shoulder = polar(hip, -Math.PI / 2, LEN.torso);
+  const head = polar(shoulder, -1.9, LEN.head);
+  const hand = (step: number) => ({ x: BEAR_HAND.x - step * 8, y: BEAR_HAND.y - step * 16 });
+  const leg = (step: number) => {
+    const lift = { x: -step * 6, y: -step * 14 };
+    const { joint, end } = limb(
+      hip,
+      { x: BEAR_ANKLE.x + lift.x, y: BEAR_ANKLE.y + lift.y },
+      LEN.thigh,
+      LEN.shin,
+      1
+    );
+    return { knee: joint, ankle: end, toe: { x: BEAR_TOE.x + lift.x, y: BEAR_TOE.y + lift.y } };
+  };
+  const armA = quadArm(shoulder, hand(stepA));
+  const armB = quadArm(shoulder, hand(stepB));
+  const legA = leg(stepB);
+  const legB = leg(stepA);
   return {
     head,
     shoulder,
     hip,
-    elbow: ik2(shoulder, wristA, LEN.upper, LEN.lower, 'maxY'),
-    wrist: wristA,
-    elbow2: ik2(shoulder, wristB, LEN.upper, LEN.lower, 'maxY'),
-    wrist2: wristB,
-    knee: kneeA,
-    ankle: ankleA,
-    toe: { x: ankleA.x + 16, y: FLOOR_Y },
-    knee2: kneeB,
-    ankle2: ankleB,
-    toe2: { x: ankleB.x + 16, y: FLOOR_Y },
+    ...armA,
+    elbow2: armB.elbow,
+    wrist2: armB.wrist,
+    ...legA,
+    knee2: legB.knee,
+    ankle2: legB.ankle,
+    toe2: legB.toe,
   };
 }
 
 function buildJumpingJacks(t: number): Pose {
-  const lift = Math.sin(t * Math.PI) * 8;
-  const hip = { x: 200, y: 170 - lift };
-  const { shoulder, head } = spine(hip, 0);
-  const ankle = { x: lerp(194, 154, t), y: FLOOR_Y - lift * 0.12 };
-  const ankle2 = { x: lerp(206, 246, t), y: FLOOR_Y - lift * 0.12 };
-  const wrist = polar(shoulder, lerp(1.15, -0.15, t), LEN.upper + LEN.lower - 8);
-  const wrist2 = {
-    x: 400 - wrist.x,
-    y: wrist.y,
-  };
+  // Front view. t = 0: feet together, arms down; t = 1: feet wide, arms overhead. Each half of the
+  // cycle is one jump: the body leaves the floor mid-way (JUMP_HEIGHT) and lands on the next
+  // stance. Straight canonical legs swing out from the pelvis; straight arms sweep through the side.
+  const JUMP_HEIGHT = 14;
+  const spread = lerp(0.03, 0.313, t);
+  const standingHipY = FLOOR_Y - Math.cos(spread) * (LEN.thigh + LEN.shin);
+  const hip = { x: FRONT_X, y: standingHipY - Math.sin(t * Math.PI) * JUMP_HEIGHT };
+  const shoulder = polar(hip, 0, LEN.torso);
+  const legRight = legChain(hip, Math.PI - spread, Math.PI - spread);
+  const legLeft = legChain(hip, Math.PI + spread, Math.PI + spread);
+  const armAngle = lerp(Math.PI - 0.15, 0.35, t);
+  const armRight = straightArmAt(shoulder, armAngle);
+  const armLeft = straightArmAt(shoulder, -armAngle);
   return {
-    head,
+    head: polar(shoulder, 0, LEN.head),
     shoulder,
     hip,
-    elbow: ik2(shoulder, wrist, LEN.upper, LEN.lower, 'minX'),
-    wrist,
-    elbow2: ik2(shoulder, wrist2, LEN.upper, LEN.lower, 'maxX'),
-    wrist2,
-    knee: ik2(hip, ankle, LEN.thigh, LEN.shin, 'maxX'),
-    ankle,
-    toe: { x: ankle.x + 12, y: ankle.y },
-    knee2: ik2(hip, ankle2, LEN.thigh, LEN.shin, 'minX'),
-    ankle2,
-    toe2: { x: ankle2.x + 12, y: ankle2.y },
+    ...armRight,
+    elbow2: armLeft.elbow,
+    wrist2: armLeft.wrist,
+    knee: legRight.knee,
+    ankle: legRight.ankle,
+    toe: { x: legRight.ankle.x + 12, y: legRight.ankle.y },
+    knee2: legLeft.knee,
+    ankle2: legLeft.ankle,
+    toe2: { x: legLeft.ankle.x - 12, y: legLeft.ankle.y },
   };
 }
 
 function buildStepUp(t: number): Pose {
-  const stepY = 248;
-  const plantOnStep = Math.min(t / 0.45, 1);
-  const standUp = Math.max((t - 0.45) / 0.55, 0);
-  const frontAnkle = lerpPoint({ x: 188, y: FLOOR_Y }, { x: 268, y: stepY }, plantOnStep);
-  const frontToe = { x: frontAnkle.x + 22, y: frontAnkle.y };
-  const backAnkle = lerpPoint({ x: 158, y: FLOOR_Y }, { x: 248, y: stepY }, standUp);
-  const backToe = { x: backAnkle.x + 22, y: backAnkle.y };
-  const hip = lerpPoint(
-    { x: 176, y: 168 },
-    { x: 256, y: stepY - LEN.shin - LEN.thigh + 8 },
-    Math.max(plantOnStep * 0.35, standUp)
-  );
-  const lean = lerp(0.1, 0.04, standUp);
-  const { shoulder, head } = spine(hip, lean);
-  const arm = hangingArm(shoulder);
+  // Working foot starts on the step; that leg straightens to lift the body while the trailing
+  // foot pushes off, swings over the step edge and lands beside it.
+  const hip = lerpPoint({ x: 228, y: 180 }, { x: 256, y: 120 }, t);
+  const { shoulder, head } = spine(hip, lerp(0.18, 0.04, t));
+  const swing = Math.min(Math.max((t - 0.08) / 0.92, 0), 1);
+  // The trailing foot rises before it travels forward, so it clears the front of the step.
+  const trailAnkle = {
+    x: lerp(206, 250, swing * swing),
+    y: lerp(FLOOR_Y, STEP_TOP_Y, swing) - Math.sin(swing * Math.PI) * 24,
+  };
+  const working = standingLeg(hip, STEP_FOOT);
+  const trailing = standingLeg(hip, trailAnkle);
   return {
     head,
     shoulder,
     hip,
-    ...arm,
-    knee: ik2(hip, frontAnkle, LEN.thigh, LEN.shin, 'maxX'),
-    ankle: frontAnkle,
-    toe: frontToe,
-    knee2: ik2(hip, backAnkle, LEN.thigh, LEN.shin, 'maxY'),
-    ankle2: backAnkle,
-    toe2: backToe,
+    ...hangingArm(shoulder),
+    knee: working.knee,
+    ankle: working.ankle,
+    toe: { x: STEP_FOOT.x + 22, y: STEP_TOP_Y },
+    knee2: trailing.knee,
+    ankle2: trailing.ankle,
+    toe2: polar(trailing.ankle, Math.PI / 2 - Math.sin(swing * Math.PI) * 0.35, 20),
   };
 }
 
 function buildHighKnees(t: number): Pose {
-  const a = pulse(t, 0, 0.25, 0.5);
-  const b = pulse(t, 0.5, 0.75, 1);
-  const bounce = Math.abs(Math.sin(t * Math.PI * 2)) * 4;
-  const hip = { x: 200, y: 168 - bounce };
+  // Side view (the knee drive is invisible from the front). One leg supports straight while the
+  // other thigh swings up past horizontal with the shin hanging; then they swap. Arms pump
+  // opposite to the legs with elbows bent.
+  const driveA = pulse(t, 0, 0.25, 0.5);
+  const driveB = pulse(t, 0.5, 0.75, 1);
+  const hip = { x: 200, y: FLOOR_Y - LEN.thigh - LEN.shin };
   const { shoulder, head } = spine(hip, 0.05);
-  const plantL = foot(186);
-  const plantR = foot(214);
-  const kneeL = ik2(hip, plantL.ankle, LEN.thigh, LEN.shin, 'maxX');
-  const kneeR = ik2(hip, plantR.ankle, LEN.thigh, LEN.shin, 'minX');
-  const raisedKneeL = polar(hip, 0.55, LEN.thigh * 0.72);
-  const raisedAnkleL = polar(raisedKneeL, 0.2, LEN.shin * 0.72);
-  const raisedToeL = polar(raisedAnkleL, 0.05, 14);
-  const raisedKneeR = polar(hip, 0.55, LEN.thigh * 0.72);
-  const raisedAnkleR = polar(raisedKneeR, 0.2, LEN.shin * 0.72);
-  const raisedToeR = polar(raisedAnkleR, 0.05, 14);
-  const frontWrist = { x: shoulder.x + 16, y: shoulder.y + 26 };
-  const backWrist = { x: shoulder.x - 10, y: shoulder.y + 48 };
+  const leg = (drive: number) => {
+    const shin = lerp(Math.PI, Math.PI + 0.15, drive);
+    const { knee, ankle } = legChain(hip, lerp(Math.PI, Math.PI / 2 - 0.1, drive), shin);
+    return { knee, ankle, toe: polar(ankle, shin - Math.PI / 2, 20) };
+  };
+  const arm = (swing: number) => {
+    const upper = Math.PI - swing * 0.55;
+    return armChain(shoulder, upper, upper - 1.45);
+  };
+  const legA = leg(driveA);
+  const legB = leg(driveB);
+  const armA = arm(driveB - driveA);
+  const armB = arm(driveA - driveB);
   return {
     head,
     shoulder,
     hip,
-    elbow: ik2(shoulder, lerpPoint(backWrist, frontWrist, a), LEN.upper, LEN.lower, 'maxX'),
-    wrist: lerpPoint(backWrist, frontWrist, a),
-    elbow2: ik2(shoulder, lerpPoint(frontWrist, backWrist, b), LEN.upper, LEN.lower, 'minX'),
-    wrist2: lerpPoint(frontWrist, backWrist, b),
-    knee: lerpPoint(kneeL, raisedKneeL, a),
-    ankle: lerpPoint(plantL.ankle, raisedAnkleL, a),
-    toe: lerpPoint(plantL.toe, raisedToeL, a),
-    knee2: lerpPoint(kneeR, raisedKneeR, b),
-    ankle2: lerpPoint(plantR.ankle, raisedAnkleR, b),
-    toe2: lerpPoint(plantR.toe, raisedToeR, b),
+    ...armA,
+    elbow2: armB.elbow,
+    wrist2: armB.wrist,
+    ...legA,
+    knee2: legB.knee,
+    ankle2: legB.ankle,
+    toe2: legB.toe,
   };
 }
 
@@ -2080,12 +2354,247 @@ const ANIMATIONS_BY_TYPE: Record<string, () => JSX.Element> = {
   highKnees: HighKnees,
 } satisfies Record<AnimationType, () => JSX.Element>;
 
-function resolveAnimation(exerciseName: string, animationType?: string) {
-  if (animationType && ANIMATIONS_BY_TYPE[animationType]) {
-    return ANIMATIONS_BY_TYPE[animationType];
+/**
+ * Pose builder behind each animation type, for dev diagnostics (validation, galleries).
+ * Keep in sync with the `build` each component in ANIMATIONS_BY_TYPE passes to <Stage>.
+ */
+export const POSE_BUILDERS_BY_TYPE = {
+  inclinePushUp: buildIncline,
+  kneePushUp: buildKneePushUp,
+  wallPushUp: buildWallPushUp,
+  pushUp: buildPushUp,
+  diamondPushUp: buildDiamondPushUp,
+  declinePushUp: buildDeclinePushUp,
+  archerPushUp: buildArcherPushUp,
+  squat: buildSquat,
+  reverseLunge: buildReverseLunge,
+  splitSquat: buildSplitSquat,
+  assistedSplitSquat: buildAssistedSplitSquat,
+  calfRaise: buildCalfRaise,
+  boxSquat: buildBoxSquat,
+  assistedPistolSquat: buildAssistedPistolSquat,
+  pistolSquat: buildPistolSquat,
+  bulgarianSplitSquat: buildBulgarianSplitSquat,
+  shrimpSquat: buildShrimpSquat,
+  singleLegCalfRaise: buildSingleLegCalfRaise,
+  gluteBridge: buildBridge,
+  singleLegGluteBridge: buildSingleLegBridge,
+  goodMorning: buildGoodMorning,
+  singleLegHipThrust: buildSingleLegHipThrust,
+  singleLegRdl: buildSingleLegRdl,
+  australianRow: buildRow,
+  assistedAustralianRow: buildAssistedRow,
+  feetElevatedAustralianRow: buildFeetElevatedRow,
+  archerAustralianRow: buildArcherRow,
+  deadHang: buildDeadHang,
+  scapularPullUp: buildScapularPullUp,
+  negativePullUp: buildNegativePullUp,
+  chinUp: buildChinUp,
+  pullUp: buildPullUp,
+  archerPullUp: buildArcherPullUp,
+  plank: buildPlank,
+  deadBug: buildDeadBug,
+  birdDog: buildBirdDog,
+  sidePlank: buildSidePlank,
+  kneePlank: buildKneePlank,
+  shoulderTaps: buildShoulderTaps,
+  longLeverPlank: buildLongLeverPlank,
+  extendedDeadBug: buildExtendedDeadBug,
+  tuckHollowHold: buildTuckHollowHold,
+  hollowHold: buildHollowHold,
+  hollowRocks: buildHollowRocks,
+  kneeSidePlank: buildKneeSidePlank,
+  sidePlankHipDip: buildSidePlankHipDip,
+  starPlank: buildStarPlank,
+  crunch: buildCrunch,
+  reverseCrunch: buildReverseCrunch,
+  lyingLegRaise: buildLyingLegRaise,
+  hangingKneeRaise: buildHangingKneeRaise,
+  hangingLegRaise: buildHangingLegRaise,
+  tuckVUp: buildTuckVUp,
+  vUp: buildVUp,
+  catCow: buildCatCow,
+  childPose: buildChildPose,
+  shoulderCircles: buildShoulderCircles,
+  hipCircles: buildHipCircles,
+  deepSquatHold: buildDeepSquatHold,
+  mountainClimbers: buildMountainClimbers,
+  bearCrawl: buildBearCrawl,
+  jumpingJacks: buildJumpingJacks,
+  stepUp: buildStepUp,
+  highKnees: buildHighKnees,
+} satisfies Record<AnimationType, PoseBuilder>;
+
+/**
+ * Planted contacts per animation type, for dev validation: each joint must stay on its point
+ * for the whole cycle. Only families rebuilt on the canonical geometry declare contacts so far.
+ */
+export const POSE_CONTACTS_BY_TYPE: Partial<Record<AnimationType, readonly Contact[]>> = {
+  wallPushUp: [
+    contact('wrist', 'wall', WALL_HAND),
+    contact('ankle', 'planted-foot', foot(WALL_FOOT_X).ankle),
+    contact('toe', 'planted-foot', foot(WALL_FOOT_X).toe),
+  ],
+  inclinePushUp: [contact('wrist', 'bench', INCLINE_HAND), contact('toe', 'planted-foot', INCLINE_TOE)],
+  kneePushUp: [
+    contact('wrist', 'planted-hand', KNEE_PUSH_UP_HAND),
+    contact('knee', 'knee', KNEE_PUSH_UP_KNEE),
+  ],
+  pushUp: [contact('wrist', 'planted-hand', PUSH_UP_HAND), contact('toe', 'planted-foot', PUSH_UP_TOE)],
+  diamondPushUp: [
+    contact('wrist', 'planted-hand', DIAMOND_HANDS[0]),
+    contact('wrist2', 'planted-hand', DIAMOND_HANDS[1]),
+    contact('toe', 'planted-foot', PUSH_UP_TOE),
+  ],
+  declinePushUp: [contact('wrist', 'planted-hand', DECLINE_HAND), contact('toe', 'bench', DECLINE_TOE)],
+  archerPushUp: [
+    contact('wrist', 'planted-hand', PUSH_UP_HAND),
+    contact('wrist2', 'planted-hand', ARCHER_SIDE_HAND),
+    contact('toe', 'planted-foot', PUSH_UP_TOE),
+  ],
+  plank: [
+    contact('elbow', 'planted-hand', buildPlank(0).elbow),
+    contact('wrist', 'planted-hand', buildPlank(0).wrist),
+    contact('toe', 'planted-foot', PLANK_TOE),
+  ],
+  kneePlank: [
+    contact('elbow', 'planted-hand', buildKneePlank(0).elbow),
+    contact('wrist', 'planted-hand', buildKneePlank(0).wrist),
+    contact('knee', 'knee', KNEE_PLANK_KNEE),
+  ],
+  longLeverPlank: [
+    contact('elbow', 'planted-hand', buildLongLeverPlank(0).elbow),
+    contact('wrist', 'planted-hand', buildLongLeverPlank(0).wrist),
+    contact('toe', 'planted-foot', LONG_LEVER_TOE),
+  ],
+  australianRow: [contact('wrist', 'bar', ROW_HAND), contact('ankle', 'planted-foot', ROW_HEEL)],
+  archerAustralianRow: [
+    contact('wrist', 'bar', ROW_HAND),
+    contact('wrist2', 'bar', ARCHER_ROW_SIDE_HAND),
+    contact('ankle', 'planted-foot', ROW_HEEL),
+  ],
+  feetElevatedAustralianRow: [
+    contact('wrist', 'bar', ELEVATED_ROW_HAND),
+    contact('ankle', 'bench', ELEVATED_ROW_HEEL),
+  ],
+  assistedAustralianRow: [
+    contact('wrist', 'bar', ASSISTED_ROW_HAND),
+    contact('ankle', 'planted-foot', foot(ASSISTED_ROW_FOOT_X).ankle),
+    contact('toe', 'planted-foot', foot(ASSISTED_ROW_FOOT_X).toe),
+  ],
+  deadHang: [contact('wrist', 'bar', HANG_HAND)],
+  scapularPullUp: [contact('wrist', 'bar', HANG_HAND)],
+  negativePullUp: [contact('wrist', 'bar', HANG_HAND)],
+  chinUp: [contact('wrist', 'bar', HANG_HAND)],
+  pullUp: [contact('wrist', 'bar', HANG_HAND)],
+  archerPullUp: [contact('wrist', 'bar', HANG_HAND), contact('wrist2', 'bar', ARCHER_PULL_SIDE_HAND)],
+  hangingKneeRaise: [contact('wrist', 'bar', HANG_HAND)],
+  hangingLegRaise: [contact('wrist', 'bar', HANG_HAND)],
+  gluteBridge: [
+    contact('ankle', 'planted-foot', foot(250).ankle),
+    contact('toe', 'planted-foot', foot(250).toe),
+    contact('wrist', 'planted-hand', buildBridge(0).wrist),
+  ],
+  singleLegGluteBridge: [
+    contact('ankle', 'planted-foot', foot(250).ankle),
+    contact('toe', 'planted-foot', foot(250).toe),
+    contact('wrist', 'planted-hand', buildBridge(0).wrist),
+  ],
+  singleLegHipThrust: [
+    contact('ankle', 'planted-foot', foot(256).ankle),
+    contact('toe', 'planted-foot', foot(256).toe),
+    contact('wrist', 'bench', buildSingleLegHipThrust(0).wrist),
+  ],
+  crunch: [contact('ankle', 'planted-foot', foot(254).ankle), contact('toe', 'planted-foot', foot(254).toe)],
+  reverseCrunch: [contact('wrist', 'planted-hand', buildReverseCrunch(0).wrist)],
+  lyingLegRaise: [contact('wrist', 'planted-hand', buildLyingLegRaise(0).wrist)],
+  splitSquat: [
+    contact('ankle', 'planted-foot', foot(SPLIT_FRONT_FOOT_X).ankle),
+    contact('ankle2', 'planted-foot', SPLIT_REAR_ANKLE),
+    contact('toe2', 'planted-foot', SPLIT_REAR_TOE),
+  ],
+  assistedSplitSquat: [
+    contact('ankle', 'planted-foot', foot(SPLIT_FRONT_FOOT_X).ankle),
+    contact('ankle2', 'planted-foot', SPLIT_REAR_ANKLE),
+    contact('wrist', 'support', SUPPORT_HAND),
+  ],
+  reverseLunge: [
+    contact('ankle', 'planted-foot', foot(SPLIT_FRONT_FOOT_X).ankle),
+    contact('toe', 'planted-foot', foot(SPLIT_FRONT_FOOT_X).toe),
+  ],
+  bulgarianSplitSquat: [
+    contact('ankle', 'planted-foot', foot(252).ankle),
+    contact('ankle2', 'bench', BULGARIAN_REAR_ANKLE),
+  ],
+  shrimpSquat: [contact('ankle', 'planted-foot', foot(224).ankle), contact('toe', 'planted-foot', foot(224).toe)],
+  assistedPistolSquat: [
+    contact('ankle', 'planted-foot', foot(200).ankle),
+    contact('wrist', 'support', SUPPORT_HAND),
+  ],
+  stepUp: [contact('ankle', 'bench', STEP_FOOT)],
+  singleLegCalfRaise: [contact('toe', 'planted-foot', CALF_TOE), contact('wrist', 'wall', CALF_HAND)],
+  catCow: [
+    contact('wrist', 'planted-hand', CAT_COW_HAND),
+    contact('knee', 'knee', QUAD_KNEE),
+    contact('ankle', 'planted-foot', kneelingShin(QUAD_KNEE).ankle),
+  ],
+  childPose: [
+    contact('wrist', 'planted-hand', CHILD_HAND),
+    contact('knee', 'knee', CHILD_KNEE),
+    contact('ankle', 'planted-foot', kneelingShin(CHILD_KNEE).ankle),
+  ],
+  sidePlank: [
+    contact('elbow', 'planted-hand', SIDE_ELBOW),
+    contact('wrist', 'planted-hand', buildSidePlank(0).wrist),
+    contact('ankle', 'planted-foot', buildSidePlank(0).ankle),
+  ],
+  kneeSidePlank: [
+    contact('elbow', 'planted-hand', buildKneeSidePlank(0).elbow),
+    contact('wrist', 'planted-hand', buildKneeSidePlank(0).wrist),
+    contact('knee', 'knee', KNEE_SIDE_KNEE),
+  ],
+  sidePlankHipDip: [
+    contact('elbow', 'planted-hand', SIDE_ELBOW),
+    contact('ankle', 'planted-foot', buildSidePlank(0).ankle),
+  ],
+  starPlank: [
+    contact('wrist', 'planted-hand', STAR_HAND),
+    contact('ankle', 'planted-foot', buildStarPlank(0).ankle),
+  ],
+  shoulderCircles: [
+    contact('ankle', 'planted-foot', { x: FRONT_X + FRONT_STANCE, y: FLOOR_Y }),
+    contact('ankle2', 'planted-foot', { x: FRONT_X - FRONT_STANCE, y: FLOOR_Y }),
+  ],
+  hipCircles: [
+    contact('ankle', 'planted-foot', { x: FRONT_X + FRONT_STANCE, y: FLOOR_Y }),
+    contact('ankle2', 'planted-foot', { x: FRONT_X - FRONT_STANCE, y: FLOOR_Y }),
+  ],
+  // Tapping hands and driving feet leave the floor in turn, so only permanent contacts are listed.
+  shoulderTaps: [contact('toe', 'planted-foot', PUSH_UP_TOE)],
+  mountainClimbers: [contact('wrist', 'planted-hand', PUSH_UP_HAND)],
+};
+
+/** Unknown types already reported in this session, so the dev warning fires once per type. */
+const reportedUnknownAnimationTypes = new Set<string>();
+
+function resolveAnimation(exerciseName: string, animationType: AnimationType) {
+  // Typed callers always pass a registered type; the lookup stays defensive for untyped values.
+  const byType: (() => JSX.Element) | undefined = animationType
+    ? ANIMATIONS_BY_TYPE[animationType]
+    : undefined;
+  if (byType) {
+    return byType;
   }
 
-  return ANIMATIONS[exerciseName.trim().toLowerCase()] ?? BodyweightSquat;
+  const byName = ANIMATIONS[exerciseName.trim().toLowerCase()] as (() => JSX.Element) | undefined;
+  if (__DEV__ && !reportedUnknownAnimationTypes.has(String(animationType))) {
+    reportedUnknownAnimationTypes.add(String(animationType));
+    console.warn(
+      `[ExerciseAnimation] Unknown animationType "${String(animationType)}" for "${exerciseName}" — ` +
+        `falling back to ${byName ? 'the exercise-name match' : 'the bodyweight squat'}.`
+    );
+  }
+  return byName ?? BodyweightSquat;
 }
 
 export function ExerciseAnimation({
