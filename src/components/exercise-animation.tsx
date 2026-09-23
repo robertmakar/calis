@@ -6,6 +6,7 @@ import { useCalisTheme } from '@/components/calis-theme';
 import {
   angleFromVertical,
   armChain,
+  chain,
   extend,
   FLOOR_Y,
   legChain,
@@ -416,83 +417,151 @@ function toesPlanted(ankleX: number, dir = 1): { ankle: Point; toe: Point } {
   };
 }
 
-function raisedArm(shoulder: Point, lift: number): { elbow: Point; wrist: Point } {
-  const wrist = polar(shoulder, lerp(1.12, 0.1, lift), LEN.upper + LEN.lower - 6);
+// ---------------------------------------------------------------------------------------------
+// Full Body hero (Home screen). A one-way authored sequence: stand → deep squat → rise onto the
+// toes with both arms overhead → hip hinge → stand. It ends on its start pose, so it loops
+// seamlessly. Each key pose is a set of joint angles; frames ease between angles (with short
+// holds) and rebuild every joint from canonical LEN segments, so no bone can stretch or collapse
+// mid-transition the way interpolated joint positions did.
+// ---------------------------------------------------------------------------------------------
+
+/** One full pass of the hero sequence. */
+const HERO_CYCLE_MS = 7000;
+
+type HeroKey = {
+  /** Heel lift in px, rolling onto the balls of the feet. */
+  heel: number;
+  /** Absolute angles from vertical (see geometry conventions); the figure faces +x. */
+  shin: number;
+  thigh: number;
+  torso: number;
+  /** Head tilt relative to the torso line. */
+  neck: number;
+  /**
+   * [upper arm, forearm] for the near and far arm. Authored unwrapped (not shortest-arc) so each
+   * sweep travels the intended way; the forearm angle stays below the upper-arm angle so the
+   * elbows always bend the same way.
+   */
+  arm: [number, number];
+  arm2: [number, number];
+};
+
+const HERO_STAND: HeroKey = {
+  heel: 0,
+  shin: 0.04,
+  thigh: 0.04,
+  torso: 0.05,
+  neck: 0,
+  arm: [Math.PI - 0.06, Math.PI - 0.22],
+  arm2: [Math.PI + 0.08, Math.PI - 0.04],
+};
+/** Thighs to parallel, heels down, torso over the feet, arms forward for balance. */
+const HERO_SQUAT: HeroKey = {
+  heel: 0,
+  shin: 0.55,
+  thigh: -1.45,
+  torso: 0.55,
+  neck: -0.3,
+  arm: [Math.PI / 2 - 0.04, Math.PI / 2 - 0.08],
+  arm2: [Math.PI / 2 + 0.1, Math.PI / 2 + 0.06],
+};
+/** Tall on the toes with both arms overhead, spread slightly so neither hides the other. */
+const HERO_REACH: HeroKey = {
+  heel: 10,
+  shin: 0.03,
+  thigh: 0.03,
+  torso: -0.04,
+  neck: -0.12,
+  arm: [0.12, 0.08],
+  arm2: [-0.2, -0.24],
+};
+/** Hips pushed back over soft knees, flat back tipped forward, arms hanging. */
+const HERO_HINGE: HeroKey = {
+  heel: 0,
+  shin: 0.12,
+  thigh: -0.45,
+  torso: 1.3,
+  neck: -0.15,
+  arm: [Math.PI - 0.04, Math.PI - 0.1],
+  arm2: [Math.PI + 0.06, Math.PI],
+};
+
+/** Moves (seconds) and holds; the final stand hold also covers the start of the next loop. */
+const HERO_STEPS: readonly { to: HeroKey; move: number; hold: number }[] = [
+  { to: HERO_SQUAT, move: 1.3, hold: 0.35 },
+  { to: HERO_REACH, move: 1.3, hold: 0.5 },
+  { to: HERO_HINGE, move: 1.3, hold: 0.35 },
+  { to: HERO_STAND, move: 1.1, hold: 0.8 },
+];
+
+/** Ease in and out, so every move starts and ends at rest (no snapping into or out of a hold). */
+function easeInOutCubic(u: number) {
+  return u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+}
+
+function lerpHeroKey(a: HeroKey, b: HeroKey, u: number): HeroKey {
   return {
-    wrist,
-    elbow: ik2(shoulder, wrist, LEN.upper, LEN.lower, 'minX'),
+    heel: lerp(a.heel, b.heel, u),
+    shin: lerp(a.shin, b.shin, u),
+    thigh: lerp(a.thigh, b.thigh, u),
+    torso: lerp(a.torso, b.torso, u),
+    neck: lerp(a.neck, b.neck, u),
+    arm: [lerp(a.arm[0], b.arm[0], u), lerp(a.arm[1], b.arm[1], u)],
+    arm2: [lerp(a.arm2[0], b.arm2[0], u), lerp(a.arm2[1], b.arm2[1], u)],
   };
 }
 
-function standingPose(options?: { squat?: number; hinge?: number; reach?: number }): Pose {
-  const squat = options?.squat ?? 0;
-  const hinge = options?.hinge ?? 0;
-  const reach = options?.reach ?? 0;
-  const { ankle, toe } = foot(200);
-  const shinFromVertical = lerp(0.04, 0.28, squat) + hinge * 0.07;
-  const thighFromVertical = lerp(0.04, -1.0, squat) + hinge * -0.16;
-  const torsoLean = lerp(0.05, 0.3, squat) + hinge * 0.88;
-  const knee = polar(ankle, shinFromVertical, LEN.shin);
-  const hip = polar(knee, thighFromVertical, LEN.thigh);
-  const { shoulder, head } = spine(hip, torsoLean);
-  const arm = reach > 0.02 ? raisedArm(shoulder, reach) : hangingArm(shoulder);
-  return { head, shoulder, hip, knee, ankle, toe, ...arm };
+function heroKeyAt(t: number): HeroKey {
+  const total = HERO_STEPS.reduce((sum, step) => sum + step.move + step.hold, 0);
+  let time = Math.min(Math.max(t, 0), 1) * total;
+  let from = HERO_STAND;
+  for (const step of HERO_STEPS) {
+    if (time < step.move) {
+      return lerpHeroKey(from, step.to, easeInOutCubic(time / step.move));
+    }
+    time -= step.move;
+    if (time < step.hold) {
+      return step.to;
+    }
+    time -= step.hold;
+    from = step.to;
+  }
+  return HERO_STAND;
 }
 
-function lerpOpt(a: Point | undefined, b: Point | undefined, t: number): Point | undefined {
-  if (!a && !b) {
-    return undefined;
-  }
-  if (!a) {
-    return b;
-  }
-  if (!b) {
-    return a;
-  }
-  return lerpPoint(a, b, t);
-}
+const HERO_TOE = { x: 222, y: FLOOR_Y };
 
-function lerpPose(a: Pose, b: Pose, t: number): Pose {
+function heroPose(key: HeroKey): Pose {
+  // The foot rolls about the ball (toe fixed); legs, torso, head and arms chain up from the ankle.
+  const ankle = polar(HERO_TOE, Math.asin(Math.min(key.heel / 22, 1)) - Math.PI / 2, 22);
+  const [knee, hip] = chain(ankle, [
+    { angle: key.shin, length: LEN.shin },
+    { angle: key.thigh, length: LEN.thigh },
+  ]);
+  const shoulder = polar(hip, key.torso, LEN.torso);
+  const near = armChain(shoulder, key.arm[0], key.arm[1]);
+  const far = armChain(shoulder, key.arm2[0], key.arm2[1]);
   return {
-    head: lerpPoint(a.head, b.head, t),
-    shoulder: lerpPoint(a.shoulder, b.shoulder, t),
-    elbow: lerpPoint(a.elbow, b.elbow, t),
-    wrist: lerpPoint(a.wrist, b.wrist, t),
-    hip: lerpPoint(a.hip, b.hip, t),
-    knee: lerpPoint(a.knee, b.knee, t),
-    ankle: lerpPoint(a.ankle, b.ankle, t),
-    toe: lerpPoint(a.toe, b.toe, t),
-    elbow2: lerpOpt(a.elbow2, b.elbow2, t),
-    wrist2: lerpOpt(a.wrist2, b.wrist2, t),
-    knee2: lerpOpt(a.knee2, b.knee2, t),
-    ankle2: lerpOpt(a.ankle2, b.ankle2, t),
-    toe2: lerpOpt(a.toe2, b.toe2, t),
+    head: polar(shoulder, key.torso * 0.96 + key.neck, LEN.head),
+    shoulder,
+    elbow: near.elbow,
+    wrist: near.wrist,
+    elbow2: far.elbow,
+    wrist2: far.wrist,
+    hip,
+    knee,
+    ankle,
+    toe: HERO_TOE,
   };
 }
 
 function buildFullBodyHero(t: number): Pose {
-  const stand = standingPose();
-  const squat = standingPose({ squat: 0.72 });
-  const hinge = standingPose({ hinge: 0.82 });
-  const reach = standingPose({ reach: 1 });
-  const frames = [
-    { at: 0, pose: stand },
-    { at: 1 / 6, pose: squat },
-    { at: 2 / 6, pose: stand },
-    { at: 3 / 6, pose: hinge },
-    { at: 4 / 6, pose: stand },
-    { at: 5 / 6, pose: reach },
-    { at: 1, pose: stand },
-  ];
-  let index = 0;
-  while (index < frames.length - 1 && frames[index + 1].at < t) {
-    index += 1;
-  }
-  const current = frames[index];
-  const next = frames[index + 1] ?? current;
-  const span = Math.max(next.at - current.at, 0.0001);
-  return lerpPose(current.pose, next.pose, (t - current.at) / span);
+  return heroPose(heroKeyAt(t));
 }
+
+/** Hero builder and planted contact, exposed for dev diagnostics and the dev gallery. */
+export const FULL_BODY_HERO_BUILDER: PoseBuilder = buildFullBodyHero;
+export const FULL_BODY_HERO_CONTACTS: readonly Contact[] = [contact('toe', 'planted-foot', HERO_TOE)];
 
 function buildSquat(t: number): Pose {
   const { ankle, toe } = foot(200);
@@ -1798,36 +1867,28 @@ function Stage({
 function useHeroCycle() {
   const progress = useRef(new Animated.Value(0)).current;
   const [t, setT] = useState(0);
-  const duration = POSE_CYCLE_MS * 6;
-
   useEffect(() => {
     if (DEBUG_POSE !== 'animate') {
       return;
     }
 
+    // One-way and linear: the hero builder owns its own easing and holds, and its sequence ends
+    // on the start pose, so restarting at 0 each loop is seamless.
     const listener = progress.addListener(({ value }) => setT(value));
     const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(progress, {
-          toValue: 1,
-          duration,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: false,
-        }),
-        Animated.timing(progress, {
-          toValue: 0,
-          duration,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: false,
-        }),
-      ])
+      Animated.timing(progress, {
+        toValue: 1,
+        duration: HERO_CYCLE_MS,
+        easing: Easing.linear,
+        useNativeDriver: false,
+      })
     );
     animation.start();
     return () => {
       animation.stop();
       progress.removeListener(listener);
     };
-  }, [duration, progress]);
+  }, [progress]);
 
   if (DEBUG_POSE === 'start') {
     return 0;

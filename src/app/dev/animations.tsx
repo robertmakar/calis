@@ -7,6 +7,9 @@ import { CalisStatusBar, useCalisTheme } from '@/components/calis-theme';
 
 import {
   ExerciseAnimation,
+  FULL_BODY_HERO_BUILDER,
+  FULL_BODY_HERO_CONTACTS,
+  FullBodyHero,
   POSE_BUILDERS_BY_TYPE,
   POSE_CONTACTS_BY_TYPE,
 } from '@/components/exercise-animation';
@@ -45,6 +48,16 @@ export default function DevAnimationGalleryScreen() {
               }).issueCount > 0
           ).length
         : 0,
+    []
+  );
+
+  const heroIssues = useMemo(
+    () =>
+      __DEV__
+        ? summarizeDiagnostics(
+            diagnosePoseBuilder(FULL_BODY_HERO_BUILDER, { contacts: FULL_BODY_HERO_CONTACTS })
+          )
+        : [],
     []
   );
 
@@ -136,6 +149,22 @@ export default function DevAnimationGalleryScreen() {
             ]}>
             <Text style={[styles.navLabel, { color: colors.onPrimary }]}>NEXT</Text>
           </Pressable>
+        </View>
+
+        <Text style={[styles.listLabel, { color: colors.secondary }]}>FULL BODY HERO (HOME)</Text>
+        <View style={styles.animation}>
+          <FullBodyHero maxHeight={240} />
+        </View>
+        <View style={styles.poseCheck}>
+          {heroIssues.length === 0 ? (
+            <Text style={[styles.poseIssue, { color: colors.secondary }]}>No pose issues.</Text>
+          ) : (
+            heroIssues.map((line) => (
+              <Text key={line} style={[styles.poseIssue, { color: colors.primary }]}>
+                {line}
+              </Text>
+            ))
+          )}
         </View>
 
         <Text style={[styles.listLabel, { color: colors.secondary }]}>ALL EXERCISES</Text>
