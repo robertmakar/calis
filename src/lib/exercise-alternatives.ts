@@ -1,6 +1,7 @@
 import {
   EXERCISES,
   getExerciseById,
+  getNextAvailableVariation,
   getRelatedExercises,
   isExerciseAvailable,
   type Exercise,
@@ -44,7 +45,8 @@ function sharesMovementIntent(current: Exercise, candidate: Exercise) {
 function isExperienceAppropriate(
   candidate: Exercise,
   current: Exercise,
-  experience: ExperienceLevel
+  experience: ExperienceLevel,
+  owned: ExerciseEquipment[]
 ) {
   if (experience === 'experienced') {
     return true;
@@ -56,6 +58,10 @@ function isExperienceAppropriate(
     return true;
   }
   const step = candidate.progressionLevel - current.progressionLevel;
+  if (step > 0 && candidate.progressionGroup === current.progressionGroup) {
+    // Same chain, harder: only the next step this user can perform (unavailable steps are skipped).
+    return getNextAvailableVariation(current, owned)?.id === candidate.id;
+  }
   if (experience === 'beginner') {
     return step <= 1;
   }
@@ -98,7 +104,7 @@ function usable(
   if (!isExerciseAvailable(candidate, owned)) {
     return false;
   }
-  return isExperienceAppropriate(candidate, current, experience);
+  return isExperienceAppropriate(candidate, current, experience, owned);
 }
 
 export function getExerciseAlternatives({
